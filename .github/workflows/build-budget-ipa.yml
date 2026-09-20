@@ -36,8 +36,8 @@ jobs:
                   PRODUCT_BUNDLE_IDENTIFIER: com.hfigen.budgetmanager
                   PRODUCT_NAME: BudgetManager
                   PRODUCT_MODULE_NAME: BudgetManager
-                  CURRENT_PROJECT_VERSION: 7
-                  MARKETING_VERSION: 1.2.4
+                  CURRENT_PROJECT_VERSION: 8
+                  MARKETING_VERSION: 1.2.5
                   GENERATE_INFOPLIST_FILE: NO
                   INFOPLIST_FILE: App/Info.plist
                   TARGETED_DEVICE_FAMILY: "1"
@@ -414,13 +414,36 @@ jobs:
                   }.reduce(0) { $0 + $1.amount }
               }
           
-              private func categorySpent(_ category: BudgetCategory) -> Double {
+              private func categorySpentMonthly(_ category: BudgetCategory) -> Double {
                   let cal = Calendar.current
                   return store.expenses.filter {
                       $0.category == category &&
                       cal.component(.year, from: $0.date) == cal.component(.year, from: now) &&
                       cal.component(.month, from: $0.date) == cal.component(.month, from: now)
                   }.reduce(0) { $0 + $1.amount }
+              }
+
+              private func categorySpentInPeriod(_ category: BudgetCategory) -> Double {
+                  store.expenses.filter {
+                      $0.category == category &&
+                      $0.date >= current.start &&
+                      $0.date < current.nextPayday
+                  }.reduce(0) { $0 + $1.amount }
+              }
+
+              private func periodCategoryLimit(_ category: BudgetCategory) -> Double {
+                  let totalMonthlyFreeBudget: Double = 59_500
+
+                  let food = (current.freeBudget * 35_500 / totalMonthlyFreeBudget).rounded()
+                  let fun = (current.freeBudget * 10_000 / totalMonthlyFreeBudget).rounded()
+                  let other = max(0, current.freeBudget - food - fun)
+
+                  switch category {
+                  case .food: return food
+                  case .fun: return fun
+                  case .other: return other
+                  default: return category.limit
+                  }
               }
           
               private func nextBillDate(_ bill: Bill) -> Date {
@@ -616,24 +639,36 @@ jobs:
           
               private var categorySection: some View {
                   VStack(alignment: .leading, spacing: 14) {
-                      Text("Лимиты на месяц")
-                          .font(.system(size: 22, weight: .bold))
-          
+                      VStack(alignment: .leading, spacing: 3) {
+                          Text("Лимиты до \(dateShort(current.nextPayday))")
+                              .font(.system(size: 22, weight: .bold))
+                          Text("Распределены пропорционально свободному бюджету текущего периода")
+                              .font(.system(size: 12))
+                              .foregroundStyle(Color.budgetMuted)
+                      }
+
                       ForEach(BudgetCategory.freeBudgetCategories) { category in
-                          let spent = categorySpent(category)
-                          let remain = max(0, category.limit - spent)
-          
+                          let periodLimit = periodCategoryLimit(category)
+                          let periodSpent = categorySpentInPeriod(category)
+                          let periodRemain = max(0, periodLimit - periodSpent)
+                          let monthSpent = categorySpentMonthly(category)
+
                           VStack(alignment: .leading, spacing: 7) {
                               HStack {
                                   Text(category.title)
                                       .font(.system(size: 18, weight: .bold))
                                   Spacer()
-                                  Text(money(remain))
+                                  Text(money(periodRemain))
                                       .font(.system(size: 18, weight: .bold))
                               }
-                              Text("потрачено \(money(spent)) из \(money(category.limit))")
+
+                              Text("потрачено \(money(periodSpent)) из \(money(periodLimit)) до \(dateShort(current.nextPayday))")
                                   .font(.system(size: 13))
                                   .foregroundStyle(Color.budgetMuted)
+
+                              Text("За месяц: \(money(monthSpent)) из \(money(category.limit))")
+                                  .font(.system(size: 11))
+                                  .foregroundStyle(Color.budgetMuted.opacity(0.85))
                           }
                           .padding(16)
                           .background(categoryColor(category))
@@ -1318,7 +1353,8 @@ jobs:
                                       detail: "После накоплений и обязательных платежей"
                                   )
 
-                                  WikiBullet(text: "Свободный бюджет распределён на еду — 35 500 ₽, развлечения — 10 000 ₽ и прочее — 14 000 ₽.")
+                                  WikiBullet(text: "Месячные ориентиры: еда — 35 500 ₽, развлечения — 10 000 ₽ и прочее — 14 000 ₽.")
+                                  WikiBullet(text: "На главном экране эти лимиты автоматически пересчитываются на текущий период до следующей выплаты пропорционально свободному бюджету периода.")
                               }
                               .budgetCard()
 
