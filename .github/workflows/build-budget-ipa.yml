@@ -36,8 +36,8 @@ jobs:
                   PRODUCT_BUNDLE_IDENTIFIER: com.hfigen.budgetmanager
                   PRODUCT_NAME: BudgetManager
                   PRODUCT_MODULE_NAME: BudgetManager
-                  CURRENT_PROJECT_VERSION: 5
-                  MARKETING_VERSION: 1.2.2
+                  CURRENT_PROJECT_VERSION: 6
+                  MARKETING_VERSION: 1.2.3
                   GENERATE_INFOPLIST_FILE: NO
                   INFOPLIST_FILE: App/Info.plist
                   TARGETED_DEVICE_FAMILY: "1"
@@ -220,6 +220,17 @@ jobs:
                   expenses.append(Expense(amount: amount, category: category, note: note, date: date))
               }
 
+              func update(_ expense: Expense, amount: Double, category: BudgetCategory, note: String, date: Date) {
+                  guard let index = expenses.firstIndex(where: { $0.id == expense.id }) else { return }
+                  expenses[index] = Expense(
+                      id: expense.id,
+                      amount: amount,
+                      category: category,
+                      note: note,
+                      date: date
+                  )
+              }
+
               func delete(_ expense: Expense) {
                   expenses.removeAll { $0.id == expense.id }
               }
@@ -367,6 +378,7 @@ jobs:
           struct ContentView: View {
               @EnvironmentObject var store: BudgetStore
               @State private var showAdd = false
+              @State private var expenseToEdit: Expense?
           
               private var now: Date { startOfDay(Date()) }
               private var current: BudgetPeriod { period(for: now) }
@@ -458,6 +470,10 @@ jobs:
                       .toolbar(.hidden, for: .navigationBar)
                       .sheet(isPresented: $showAdd) {
                           AddExpenseView()
+                              .environmentObject(store)
+                      }
+                      .sheet(item: $expenseToEdit) { expense in
+                          EditExpenseView(expense: expense)
                               .environmentObject(store)
                       }
                   }
@@ -679,12 +695,21 @@ jobs:
                                           .foregroundStyle(Color.budgetMuted)
                                   }
                                   Spacer()
-                                  VStack(alignment: .trailing, spacing: 5) {
+                                  VStack(alignment: .trailing, spacing: 6) {
                                       Text("−\(money(expense.amount))")
                                           .font(.system(size: 16, weight: .bold))
-                                      Button("Удалить") { store.delete(expense) }
+                                      HStack(spacing: 10) {
+                                          Button("Изменить") {
+                                              expenseToEdit = expense
+                                          }
+                                          .font(.system(size: 12, weight: .semibold))
+
+                                          Button("Удалить") {
+                                              store.delete(expense)
+                                          }
                                           .font(.system(size: 12))
                                           .foregroundStyle(.red)
+                                      }
                                   }
                               }
                               .padding(.vertical, 5)
@@ -762,6 +787,93 @@ jobs:
               }
           }
           
+          struct EditExpenseView: View {
+              @EnvironmentObject var store: BudgetStore
+              @Environment(\.dismiss) private var dismiss
+
+              let expense: Expense
+
+              @State private var amount: String
+              @State private var category: BudgetCategory
+              @State private var note: String
+              @State private var date: Date
+              @State private var showDeleteConfirmation = false
+
+              init(expense: Expense) {
+                  self.expense = expense
+                  let amountText: String
+                  if expense.amount.rounded() == expense.amount {
+                      amountText = String(Int(expense.amount))
+                  } else {
+                      amountText = String(expense.amount).replacingOccurrences(of: ".", with: ",")
+                  }
+                  _amount = State(initialValue: amountText)
+                  _category = State(initialValue: expense.category)
+                  _note = State(initialValue: expense.note)
+                  _date = State(initialValue: expense.date)
+              }
+
+              var body: some View {
+                  NavigationStack {
+                      Form {
+                          Section("Расход") {
+                              TextField("Сумма", text: $amount)
+                                  .keyboardType(.decimalPad)
+
+                              Picker("Категория", selection: $category) {
+                                  ForEach(BudgetCategory.allCases) { category in
+                                      Text(category.title).tag(category)
+                                  }
+                              }
+
+                              TextField("Комментарий", text: $note)
+                              DatePicker("Дата", selection: $date, displayedComponents: .date)
+                          }
+
+                          Section {
+                              Button("Удалить расход", role: .destructive) {
+                                  showDeleteConfirmation = true
+                              }
+                          }
+                      }
+                      .navigationTitle("Изменить расход")
+                      .navigationBarTitleDisplayMode(.inline)
+                      .toolbar {
+                          ToolbarItem(placement: .cancellationAction) {
+                              Button("Отмена") { dismiss() }
+                          }
+                          ToolbarItem(placement: .confirmationAction) {
+                              Button("Сохранить") {
+                                  let normalized = amount.replacingOccurrences(of: ",", with: ".")
+                                  if let value = Double(normalized), value > 0 {
+                                      store.update(
+                                          expense,
+                                          amount: value,
+                                          category: category,
+                                          note: note.trimmingCharacters(in: .whitespacesAndNewlines),
+                                          date: startOfDay(date)
+                                      )
+                                      dismiss()
+                                  }
+                              }
+                              .disabled(Double(amount.replacingOccurrences(of: ",", with: ".")) == nil)
+                          }
+                      }
+                      .confirmationDialog(
+                          "Удалить этот расход?",
+                          isPresented: $showDeleteConfirmation,
+                          titleVisibility: .visible
+                      ) {
+                          Button("Удалить", role: .destructive) {
+                              store.delete(expense)
+                              dismiss()
+                          }
+                          Button("Отмена", role: .cancel) {}
+                      }
+                  }
+              }
+          }
+
           struct AddSavingView: View {
               @EnvironmentObject var store: BudgetStore
               @Environment(\.dismiss) private var dismiss
