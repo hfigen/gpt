@@ -36,8 +36,8 @@ jobs:
                   PRODUCT_BUNDLE_IDENTIFIER: com.hfigen.budgetmanager
                   PRODUCT_NAME: BudgetManager
                   PRODUCT_MODULE_NAME: BudgetManager
-                  CURRENT_PROJECT_VERSION: 2
-                  MARKETING_VERSION: 1.1
+                  CURRENT_PROJECT_VERSION: 3
+                  MARKETING_VERSION: 1.2
                   GENERATE_INFOPLIST_FILE: NO
                   INFOPLIST_FILE: App/Info.plist
                   TARGETED_DEVICE_FAMILY: "1"
@@ -112,6 +112,7 @@ jobs:
 
           cat > BudgetManager/App/BudgetManagerApp.swift <<'SWIFT'
           import SwiftUI
+          import Charts
           
           enum BudgetCategory: String, Codable, CaseIterable, Identifiable {
               case food, fun, other
@@ -139,40 +140,74 @@ jobs:
               var note: String
               var date: Date
           }
+
+          struct SavingsEntry: Identifiable, Codable {
+              var id: UUID = UUID()
+              var amount: Double
+              var note: String
+              var date: Date
+          }
           
           final class BudgetStore: ObservableObject {
               @Published var expenses: [Expense] = [] {
-                  didSet { save() }
+                  didSet { saveExpenses() }
               }
-          
-              private let key = "budget_manager_expenses_v1"
-          
+
+              @Published var savings: [SavingsEntry] = [] {
+                  didSet { saveSavings() }
+              }
+
+              private let expenseKey = "budget_manager_expenses_v1"
+              private let savingsKey = "budget_manager_savings_v1"
+
               init() {
-                  guard let data = UserDefaults.standard.data(forKey: key) else { return }
                   let decoder = JSONDecoder()
                   decoder.dateDecodingStrategy = .iso8601
-                  if let saved = try? decoder.decode([Expense].self, from: data) {
+
+                  if let data = UserDefaults.standard.data(forKey: expenseKey),
+                     let saved = try? decoder.decode([Expense].self, from: data) {
                       expenses = saved
                   }
+
+                  if let data = UserDefaults.standard.data(forKey: savingsKey),
+                     let saved = try? decoder.decode([SavingsEntry].self, from: data) {
+                      savings = saved
+                  }
               }
-          
-              private func save() {
+
+              private func saveExpenses() {
                   let encoder = JSONEncoder()
                   encoder.dateEncodingStrategy = .iso8601
                   if let data = try? encoder.encode(expenses) {
-                      UserDefaults.standard.set(data, forKey: key)
+                      UserDefaults.standard.set(data, forKey: expenseKey)
                   }
               }
-          
+
+              private func saveSavings() {
+                  let encoder = JSONEncoder()
+                  encoder.dateEncodingStrategy = .iso8601
+                  if let data = try? encoder.encode(savings) {
+                      UserDefaults.standard.set(data, forKey: savingsKey)
+                  }
+              }
+
               func add(amount: Double, category: BudgetCategory, note: String, date: Date) {
                   expenses.append(Expense(amount: amount, category: category, note: note, date: date))
               }
-          
+
               func delete(_ expense: Expense) {
                   expenses.removeAll { $0.id == expense.id }
               }
+
+              func addSaving(amount: Double, note: String, date: Date) {
+                  savings.append(SavingsEntry(amount: amount, note: note, date: date))
+              }
+
+              func deleteSaving(_ entry: SavingsEntry) {
+                  savings.removeAll { $0.id == entry.id }
+              }
           }
-          
+
           struct BudgetPeriod {
               let start: Date
               let nextPayday: Date
@@ -690,13 +725,406 @@ jobs:
               }
           }
           
+          struct AddSavingView: View {
+              @EnvironmentObject var store: BudgetStore
+              @Environment(\.dismiss) private var dismiss
+
+              @State private var amount = ""
+              @State private var note = ""
+              @State private var date = Date()
+
+              var body: some View {
+                  NavigationStack {
+                      Form {
+                          Section("Накопление") {
+                              TextField("Сумма", text: $amount)
+                                  .keyboardType(.decimalPad)
+                              TextField("Комментарий", text: $note)
+                              DatePicker("Дата", selection: $date, displayedComponents: .date)
+                          }
+                      }
+                      .navigationTitle("Добавить накопление")
+                      .navigationBarTitleDisplayMode(.inline)
+                      .toolbar {
+                          ToolbarItem(placement: .cancellationAction) {
+                              Button("Отмена") { dismiss() }
+                          }
+                          ToolbarItem(placement: .confirmationAction) {
+                              Button("Сохранить") {
+                                  let normalized = amount.replacingOccurrences(of: ",", with: ".")
+                                  if let value = Double(normalized), value > 0 {
+                                      store.addSaving(
+                                          amount: value,
+                                          note: note.trimmingCharacters(in: .whitespacesAndNewlines),
+                                          date: startOfDay(date)
+                                      )
+                                      dismiss()
+                                  }
+                              }
+                              .disabled(Double(amount.replacingOccurrences(of: ",", with: ".")) == nil)
+                          }
+                      }
+                  }
+              }
+          }
+
+          struct SavingsView: View {
+              @EnvironmentObject var store: BudgetStore
+              @State private var showAdd = false
+
+              private let monthlyGoal: Double = 50_000
+              private var now: Date { startOfDay(Date()) }
+
+              private var monthInterval: DateInterval {
+                  Calendar.current.dateInterval(of: .month, for: now)!
+              }
+
+              private var monthSavings: [SavingsEntry] {
+                  store.savings.filter { monthInterval.contains($0.date) }
+              }
+
+              private var monthTotal: Double {
+                  monthSavings.reduce(0) { $0 + $1.amount }
+              }
+
+              private var allTimeTotal: Double {
+                  store.savings.reduce(0) { $0 + $1.amount }
+              }
+
+              private var progress: Double {
+                  min(1, monthTotal / monthlyGoal)
+              }
+
+              var body: some View {
+                  NavigationStack {
+                      ScrollView {
+                          LazyVStack(spacing: 14) {
+                              HStack(alignment: .top) {
+                                  VStack(alignment: .leading, spacing: 3) {
+                                      Text("Накопления")
+                                          .font(.system(size: 32, weight: .bold))
+                                      Text("Цель на месяц — (money(monthlyGoal))")
+                                          .font(.system(size: 15))
+                                          .foregroundStyle(Color.budgetMuted)
+                                  }
+                                  Spacer()
+                                  Button {
+                                      showAdd = true
+                                  } label: {
+                                      Label("внести", systemImage: "plus")
+                                          .font(.system(size: 16, weight: .semibold))
+                                          .foregroundStyle(Color.budgetText)
+                                          .padding(.horizontal, 14)
+                                          .padding(.vertical, 12)
+                                          .background(Color.white)
+                                          .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                                          .shadow(color: .black.opacity(0.05), radius: 5, y: 2)
+                                  }
+                              }
+                              .padding(.top, 12)
+
+                              VStack(alignment: .leading, spacing: 14) {
+                                  Text("В этом месяце")
+                                      .font(.system(size: 15))
+                                      .foregroundStyle(Color.budgetMuted)
+
+                                  Text(money(monthTotal))
+                                      .font(.system(size: 42, weight: .bold))
+                                      .lineLimit(1)
+                                      .minimumScaleFactor(0.75)
+
+                                  ProgressView(value: progress)
+                                      .tint(Color.budgetText)
+                                      .scaleEffect(x: 1, y: 1.8)
+
+                                  HStack {
+                                      Text("Выполнено \(Int(progress * 100))%")
+                                          .foregroundStyle(Color.budgetMuted)
+                                      Spacer()
+                                      Text("Осталось \(money(max(0, monthlyGoal - monthTotal)))")
+                                          .fontWeight(.semibold)
+                                  }
+                                  .font(.system(size: 14))
+                              }
+                              .budgetCard()
+
+                              HStack(spacing: 12) {
+                                  VStack(alignment: .leading, spacing: 7) {
+                                      Text("Всего накоплено")
+                                          .foregroundStyle(Color.budgetMuted)
+                                          .font(.system(size: 14))
+                                      Text(money(allTimeTotal))
+                                          .font(.system(size: 24, weight: .bold))
+                                  }
+                                  .frame(maxWidth: .infinity, minHeight: 90, alignment: .topLeading)
+                                  .budgetCard()
+
+                                  VStack(alignment: .leading, spacing: 7) {
+                                      Text("Записей за месяц")
+                                          .foregroundStyle(Color.budgetMuted)
+                                          .font(.system(size: 14))
+                                      Text("\(monthSavings.count)")
+                                          .font(.system(size: 24, weight: .bold))
+                                  }
+                                  .frame(maxWidth: .infinity, minHeight: 90, alignment: .topLeading)
+                                  .budgetCard()
+                              }
+
+                              VStack(alignment: .leading, spacing: 12) {
+                                  HStack {
+                                      Text("История накоплений")
+                                          .font(.system(size: 22, weight: .bold))
+                                      Spacer()
+                                      Button("Добавить") { showAdd = true }
+                                          .font(.system(size: 14, weight: .semibold))
+                                  }
+
+                                  if store.savings.isEmpty {
+                                      Text("Накоплений пока нет. Добавь первое пополнение.")
+                                          .foregroundStyle(Color.budgetMuted)
+                                          .font(.system(size: 15))
+                                          .padding(.vertical, 8)
+                                  } else {
+                                      ForEach(store.savings.sorted { $0.date > $1.date }) { entry in
+                                          HStack {
+                                              VStack(alignment: .leading, spacing: 3) {
+                                                  Text(entry.note.isEmpty ? "Накопление" : entry.note)
+                                                      .font(.system(size: 16, weight: .semibold))
+                                                  Text(dateShort(entry.date))
+                                                      .font(.system(size: 13))
+                                                      .foregroundStyle(Color.budgetMuted)
+                                              }
+                                              Spacer()
+                                              VStack(alignment: .trailing, spacing: 5) {
+                                                  Text("+\(money(entry.amount))")
+                                                      .font(.system(size: 16, weight: .bold))
+                                                  Button("Удалить") { store.deleteSaving(entry) }
+                                                      .font(.system(size: 12))
+                                                      .foregroundStyle(.red)
+                                              }
+                                          }
+                                          .padding(.vertical, 5)
+                                          Divider()
+                                      }
+                                  }
+                              }
+                              .budgetCard()
+                          }
+                          .padding(.horizontal, 16)
+                          .padding(.bottom, 28)
+                      }
+                      .background(Color.budgetBG.ignoresSafeArea())
+                      .toolbar(.hidden, for: .navigationBar)
+                      .sheet(isPresented: $showAdd) {
+                          AddSavingView().environmentObject(store)
+                      }
+                  }
+              }
+          }
+
+          struct DailySpendPoint: Identifiable {
+              let id = UUID()
+              let date: Date
+              let amount: Double
+          }
+
+          struct AnalyticsView: View {
+              @EnvironmentObject var store: BudgetStore
+
+              private var now: Date { startOfDay(Date()) }
+
+              private var monthInterval: DateInterval {
+                  Calendar.current.dateInterval(of: .month, for: now)!
+              }
+
+              private var monthExpenses: [Expense] {
+                  store.expenses.filter { monthInterval.contains($0.date) }
+              }
+
+              private var dailyData: [DailySpendPoint] {
+                  let cal = Calendar.current
+                  let start = monthInterval.start
+                  let today = now
+                  let days = max(1, cal.dateComponents([.day], from: start, to: today).day ?? 0)
+
+                  return (0...days).map { offset in
+                      let day = cal.date(byAdding: .day, value: offset, to: start)!
+                      let total = monthExpenses
+                          .filter { cal.isDate($0.date, inSameDayAs: day) }
+                          .reduce(0) { $0 + $1.amount }
+                      return DailySpendPoint(date: day, amount: total)
+                  }
+              }
+
+              private var monthTotal: Double {
+                  monthExpenses.reduce(0) { $0 + $1.amount }
+              }
+
+              private var activeDays: Int {
+                  dailyData.filter { $0.amount > 0 }.count
+              }
+
+              private var averagePerActiveDay: Double {
+                  activeDays == 0 ? 0 : monthTotal / Double(activeDays)
+              }
+
+              private var maxDay: DailySpendPoint? {
+                  dailyData.max { $0.amount < $1.amount }
+              }
+
+              var body: some View {
+                  NavigationStack {
+                      ScrollView {
+                          LazyVStack(spacing: 14) {
+                              VStack(alignment: .leading, spacing: 3) {
+                                  Text("Аналитика")
+                                      .font(.system(size: 32, weight: .bold))
+                                  Text("Динамика трат по дням")
+                                      .font(.system(size: 15))
+                                      .foregroundStyle(Color.budgetMuted)
+                              }
+                              .frame(maxWidth: .infinity, alignment: .leading)
+                              .padding(.top, 12)
+
+                              VStack(alignment: .leading, spacing: 16) {
+                                  HStack {
+                                      VStack(alignment: .leading, spacing: 4) {
+                                          Text("Траты за месяц")
+                                              .font(.system(size: 14))
+                                              .foregroundStyle(Color.budgetMuted)
+                                          Text(money(monthTotal))
+                                              .font(.system(size: 30, weight: .bold))
+                                      }
+                                      Spacer()
+                                      VStack(alignment: .trailing, spacing: 4) {
+                                          Text("Среднее в день с тратами")
+                                              .font(.system(size: 12))
+                                              .foregroundStyle(Color.budgetMuted)
+                                          Text(money(averagePerActiveDay))
+                                              .font(.system(size: 18, weight: .bold))
+                                      }
+                                  }
+
+                                  Chart(dailyData) { point in
+                                      LineMark(
+                                          x: .value("Дата", point.date),
+                                          y: .value("Траты", point.amount)
+                                      )
+                                      .interpolationMethod(.catmullRom)
+
+                                      AreaMark(
+                                          x: .value("Дата", point.date),
+                                          y: .value("Траты", point.amount)
+                                      )
+                                      .opacity(0.10)
+
+                                      if point.amount > 0 {
+                                          PointMark(
+                                              x: .value("Дата", point.date),
+                                              y: .value("Траты", point.amount)
+                                          )
+                                      }
+                                  }
+                                  .chartXAxis {
+                                      AxisMarks(values: .automatic(desiredCount: 6)) { value in
+                                          AxisGridLine()
+                                          AxisTick()
+                                          AxisValueLabel(format: .dateTime.day())
+                                      }
+                                  }
+                                  .chartYAxis {
+                                      AxisMarks(position: .leading)
+                                  }
+                                  .frame(height: 240)
+                              }
+                              .budgetCard()
+
+                              HStack(spacing: 12) {
+                                  VStack(alignment: .leading, spacing: 7) {
+                                      Text("Дней с тратами")
+                                          .font(.system(size: 14))
+                                          .foregroundStyle(Color.budgetMuted)
+                                      Text("\(activeDays)")
+                                          .font(.system(size: 24, weight: .bold))
+                                  }
+                                  .frame(maxWidth: .infinity, minHeight: 90, alignment: .topLeading)
+                                  .budgetCard()
+
+                                  VStack(alignment: .leading, spacing: 7) {
+                                      Text("Максимум за день")
+                                          .font(.system(size: 14))
+                                          .foregroundStyle(Color.budgetMuted)
+                                      Text(money(maxDay?.amount ?? 0))
+                                          .font(.system(size: 22, weight: .bold))
+                                      if let day = maxDay, day.amount > 0 {
+                                          Text(dateShort(day.date))
+                                              .font(.system(size: 12))
+                                              .foregroundStyle(Color.budgetMuted)
+                                      }
+                                  }
+                                  .frame(maxWidth: .infinity, minHeight: 90, alignment: .topLeading)
+                                  .budgetCard()
+                              }
+
+                              VStack(alignment: .leading, spacing: 12) {
+                                  Text("По категориям за месяц")
+                                      .font(.system(size: 22, weight: .bold))
+
+                                  ForEach(BudgetCategory.allCases) { category in
+                                      let total = monthExpenses
+                                          .filter { $0.category == category }
+                                          .reduce(0) { $0 + $1.amount }
+
+                                      HStack {
+                                          Text(category.title)
+                                          Spacer()
+                                          Text(money(total))
+                                              .fontWeight(.bold)
+                                      }
+                                      .font(.system(size: 16))
+                                      Divider()
+                                  }
+                              }
+                              .budgetCard()
+                          }
+                          .padding(.horizontal, 16)
+                          .padding(.bottom, 28)
+                      }
+                      .background(Color.budgetBG.ignoresSafeArea())
+                      .toolbar(.hidden, for: .navigationBar)
+                  }
+              }
+          }
+
+          struct RootView: View {
+              var body: some View {
+                  TabView {
+                      ContentView()
+                          .tabItem {
+                              Label("Бюджет", systemImage: "wallet.pass")
+                          }
+
+                      SavingsView()
+                          .tabItem {
+                              Label("Накопления", systemImage: "banknote")
+                          }
+
+                      AnalyticsView()
+                          .tabItem {
+                              Label("Аналитика", systemImage: "chart.xyaxis.line")
+                          }
+                  }
+                  .tint(Color.budgetText)
+              }
+          }
+
           @main
           struct BudgetManagerApp: App {
               @StateObject private var store = BudgetStore()
           
               var body: some Scene {
                   WindowGroup {
-                      ContentView()
+                      RootView()
                           .environmentObject(store)
                   }
               }
