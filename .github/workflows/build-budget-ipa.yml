@@ -36,8 +36,8 @@ jobs:
                   PRODUCT_BUNDLE_IDENTIFIER: com.hfigen.budgetmanager
                   PRODUCT_NAME: BudgetManager
                   PRODUCT_MODULE_NAME: BudgetManager
-                  CURRENT_PROJECT_VERSION: 3
-                  MARKETING_VERSION: 1.2
+                  CURRENT_PROJECT_VERSION: 4
+                  MARKETING_VERSION: 1.2.1
                   GENERATE_INFOPLIST_FILE: NO
                   INFOPLIST_FILE: App/Info.plist
                   TARGETED_DEVICE_FAMILY: "1"
@@ -290,8 +290,8 @@ jobs:
               let formatter = NumberFormatter()
               formatter.numberStyle = .decimal
               formatter.maximumFractionDigits = 0
-              formatter.groupingSeparator = " "
-              return (formatter.string(from: NSNumber(value: max(0, value))) ?? "0") + " ₽"
+              formatter.groupingSeparator = "\u{202F}"
+              return (formatter.string(from: NSNumber(value: max(0, value))) ?? "0") + "\u{00A0}₽"
           }
           
           func dateShort(_ date: Date) -> String {
@@ -468,7 +468,10 @@ jobs:
                       HStack(alignment: .bottom) {
                           VStack(alignment: .leading, spacing: 5) {
                               Text(money(remaining))
-                                  .font(.system(size: 46, weight: .bold))
+                                  .font(.system(size: 44, weight: .bold))
+                                  .lineLimit(1)
+                                  .minimumScaleFactor(0.72)
+                                  .allowsTightening(true)
                                   .foregroundStyle(Color.budgetText)
                               Text("осталось до следующей выплаты")
                                   .foregroundStyle(Color.budgetMuted)
@@ -803,7 +806,7 @@ jobs:
                                   VStack(alignment: .leading, spacing: 3) {
                                       Text("Накопления")
                                           .font(.system(size: 32, weight: .bold))
-                                      Text("Цель на месяц — (money(monthlyGoal))")
+                                      Text("Цель на месяц — \(money(monthlyGoal))")
                                           .font(.system(size: 15))
                                           .foregroundStyle(Color.budgetMuted)
                                   }
