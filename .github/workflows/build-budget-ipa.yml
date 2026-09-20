@@ -1,0 +1,126 @@
+name: Build Budget Manager IPA
+
+on:
+  push:
+    paths:
+      - '.github/workflows/build-budget-ipa.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Create iOS project
+        run: |
+          mkdir -p BudgetManager/App BudgetManager/Web
+          cat > BudgetManager/project.yml <<'EOF'
+          name: BudgetManager
+          options:
+            deploymentTarget:
+              iOS: "16.0"
+          targets:
+            BudgetManager:
+              type: application
+              platform: iOS
+              sources:
+                - path: App
+              resources:
+                - path: Web
+              settings:
+                base:
+                  PRODUCT_BUNDLE_IDENTIFIER: com.hfigen.budgetmanager
+                  PRODUCT_NAME: BudgetManager
+                  GENERATE_INFOPLIST_FILE: YES
+                  INFOPLIST_KEY_CFBundleDisplayName: "Мой бюджет"
+                  INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
+                  INFOPLIST_KEY_UILaunchScreen_Generation: YES
+                  TARGETED_DEVICE_FAMILY: "1"
+                  SWIFT_VERSION: "5.0"
+                  IPHONEOS_DEPLOYMENT_TARGET: "16.0"
+          EOF
+
+          cat > BudgetManager/App/BudgetManagerApp.swift <<'EOF'
+          import SwiftUI
+          import WebKit
+
+          struct BudgetWebView: UIViewRepresentable {
+              func makeUIView(context: Context) -> WKWebView {
+                  let config = WKWebViewConfiguration()
+                  config.websiteDataStore = .default()
+                  let view = WKWebView(frame: .zero, configuration: config)
+                  view.scrollView.contentInsetAdjustmentBehavior = .never
+                  view.isOpaque = false
+                  view.backgroundColor = .clear
+
+                  let bundled = Bundle.main.url(forResource: "index", withExtension: "html", subdirectory: "Web")
+                      ?? Bundle.main.url(forResource: "index", withExtension: "html")
+                  if let url = bundled {
+                      view.loadFileURL(url, allowingReadAccessTo: url.deletingLastPathComponent())
+                  }
+                  return view
+              }
+
+              func updateUIView(_ uiView: WKWebView, context: Context) {}
+          }
+
+          @main
+          struct BudgetManagerApp: App {
+              var body: some Scene {
+                  WindowGroup {
+                      BudgetWebView()
+                          .ignoresSafeArea()
+                  }
+              }
+          }
+          EOF
+
+          cat > BudgetManager/Web/index.html <<'EOF'
+          <!doctype html>
+          <html lang="ru">
+          <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+            <title>Мой бюджет</title>
+            <style>
+              body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#f4f6fb;color:#10182b;padding:40px}
+            </style>
+          </head>
+          <body><h1>Мой бюджет</h1><p>Budget Manager</p></body>
+          </html>
+          EOF
+
+          cd BudgetManager
+          xcodegen generate
+
+      - name: Build unsigned app
+        run: |
+          cd BudgetManager
+          xcodebuild \
+            -project BudgetManager.xcodeproj \
+            -scheme BudgetManager \
+            -configuration Release \
+            -sdk iphoneos \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            build
+
+      - name: Package IPA
+        run: |
+          cd BudgetManager
+          mkdir -p Payload
+          cp -R build/Build/Products/Release-iphoneos/BudgetManager.app Payload/
+          zip -qry BudgetManager-unsigned.ipa Payload
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: BudgetManager-unsigned
+          path: BudgetManager/BudgetManager-unsigned.ipa
+          retention-days: 1
