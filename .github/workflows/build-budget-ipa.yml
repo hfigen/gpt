@@ -36,8 +36,8 @@ jobs:
                   PRODUCT_BUNDLE_IDENTIFIER: com.hfigen.budgetmanager
                   PRODUCT_NAME: BudgetManager
                   PRODUCT_MODULE_NAME: BudgetManager
-                  CURRENT_PROJECT_VERSION: 4
-                  MARKETING_VERSION: 1.2.1
+                  CURRENT_PROJECT_VERSION: 5
+                  MARKETING_VERSION: 1.2.2
                   GENERATE_INFOPLIST_FILE: NO
                   INFOPLIST_FILE: App/Info.plist
                   TARGETED_DEVICE_FAMILY: "1"
@@ -116,20 +116,45 @@ jobs:
           
           enum BudgetCategory: String, Codable, CaseIterable, Identifiable {
               case food, fun, other
+              case rent, gptSubscription, mobile, internet
+
               var id: String { rawValue }
+
               var title: String {
                   switch self {
                   case .food: return "Еда"
                   case .fun: return "Развлечения"
                   case .other: return "Прочее"
+                  case .rent: return "Квартира"
+                  case .gptSubscription: return "Подписка GPT"
+                  case .mobile: return "Мобильная связь"
+                  case .internet: return "Интернет"
                   }
               }
+
               var limit: Double {
                   switch self {
                   case .food: return 35_500
                   case .fun: return 10_000
                   case .other: return 14_000
+                  case .rent: return 35_000
+                  case .gptSubscription: return 2_000
+                  case .mobile: return 500
+                  case .internet: return 1_000
                   }
+              }
+
+              var countsAgainstFreeBudget: Bool {
+                  switch self {
+                  case .food, .fun, .other:
+                      return true
+                  case .rent, .gptSubscription, .mobile, .internet:
+                      return false
+                  }
+              }
+
+              static var freeBudgetCategories: [BudgetCategory] {
+                  [.food, .fun, .other]
               }
           }
           
@@ -347,7 +372,11 @@ jobs:
               private var current: BudgetPeriod { period(for: now) }
           
               private var periodExpenses: [Expense] {
-                  store.expenses.filter { $0.date >= current.start && $0.date < current.nextPayday }
+                  store.expenses.filter {
+                      $0.date >= current.start &&
+                      $0.date < current.nextPayday &&
+                      $0.category.countsAgainstFreeBudget
+                  }
               }
           
               private var periodSpent: Double {
@@ -367,7 +396,10 @@ jobs:
               }
           
               private var spentToday: Double {
-                  store.expenses.filter { Calendar.current.isDate($0.date, inSameDayAs: now) }.reduce(0) { $0 + $1.amount }
+                  store.expenses.filter {
+                      Calendar.current.isDate($0.date, inSameDayAs: now) &&
+                      $0.category.countsAgainstFreeBudget
+                  }.reduce(0) { $0 + $1.amount }
               }
           
               private func categorySpent(_ category: BudgetCategory) -> Double {
@@ -571,7 +603,7 @@ jobs:
                       Text("Лимиты на месяц")
                           .font(.system(size: 22, weight: .bold))
           
-                      ForEach(BudgetCategory.allCases) { category in
+                      ForEach(BudgetCategory.freeBudgetCategories) { category in
                           let spent = categorySpent(category)
                           let remain = max(0, category.limit - spent)
           
@@ -668,6 +700,8 @@ jobs:
                   case .food: return .budgetFood
                   case .fun: return .budgetFun
                   case .other: return .budgetOther
+                  case .rent, .gptSubscription, .mobile, .internet:
+                      return Color(red: 0.94, green: 0.95, blue: 0.97)
                   }
               }
           
