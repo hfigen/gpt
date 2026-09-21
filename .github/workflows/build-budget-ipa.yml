@@ -36,8 +36,8 @@ jobs:
                   PRODUCT_BUNDLE_IDENTIFIER: com.hfigen.budgetmanager
                   PRODUCT_NAME: BudgetManager
                   PRODUCT_MODULE_NAME: BudgetManager
-                  CURRENT_PROJECT_VERSION: 8
-                  MARKETING_VERSION: 1.2.5
+                  CURRENT_PROJECT_VERSION: 9
+                  MARKETING_VERSION: 1.3.0
                   GENERATE_INFOPLIST_FILE: NO
                   INFOPLIST_FILE: App/Info.plist
                   TARGETED_DEVICE_FAMILY: "1"
@@ -116,6 +116,7 @@ jobs:
           
           enum BudgetCategory: String, Codable, CaseIterable, Identifiable {
               case food, fun, other
+              case haircut
               case rent, gptSubscription, mobile, internet
 
               var id: String { rawValue }
@@ -125,6 +126,7 @@ jobs:
                   case .food: return "Еда"
                   case .fun: return "Развлечения"
                   case .other: return "Прочее"
+                  case .haircut: return "Парикмахерская"
                   case .rent: return "Квартира"
                   case .gptSubscription: return "Подписка GPT"
                   case .mobile: return "Мобильная связь"
@@ -137,6 +139,7 @@ jobs:
                   case .food: return 35_500
                   case .fun: return 10_000
                   case .other: return 14_000
+                  case .haircut: return 2_300
                   case .rent: return 35_000
                   case .gptSubscription: return 2_000
                   case .mobile: return 500
@@ -146,10 +149,19 @@ jobs:
 
               var countsAgainstFreeBudget: Bool {
                   switch self {
-                  case .food, .fun, .other:
+                  case .food, .fun, .other, .haircut:
                       return true
                   case .rent, .gptSubscription, .mobile, .internet:
                       return false
+                  }
+              }
+
+              var budgetGroup: BudgetCategory {
+                  switch self {
+                  case .haircut:
+                      return .other
+                  default:
+                      return self
                   }
               }
 
@@ -157,7 +169,7 @@ jobs:
                   [.food, .fun, .other]
               }
           }
-          
+
           struct Expense: Identifiable, Codable {
               var id: UUID = UUID()
               var amount: Double
@@ -182,8 +194,18 @@ jobs:
                   didSet { saveSavings() }
               }
 
+              @Published var savingsTrackingStart: Date = Calendar.current.startOfDay(for: Date()) {
+                  didSet { saveSavingsTracking() }
+              }
+
+              @Published var savingsTrackingBaseline: Double = 0 {
+                  didSet { saveSavingsTracking() }
+              }
+
               private let expenseKey = "budget_manager_expenses_v1"
               private let savingsKey = "budget_manager_savings_v1"
+              private let savingsTrackingStartKey = "budget_manager_savings_tracking_start_v1"
+              private let savingsTrackingBaselineKey = "budget_manager_savings_tracking_baseline_v1"
 
               init() {
                   let decoder = JSONDecoder()
@@ -197,6 +219,18 @@ jobs:
                   if let data = UserDefaults.standard.data(forKey: savingsKey),
                      let saved = try? decoder.decode([SavingsEntry].self, from: data) {
                       savings = saved
+                  }
+
+                  if let savedStart = UserDefaults.standard.object(forKey: savingsTrackingStartKey) as? Date {
+                      savingsTrackingStart = savedStart
+                  } else if let earliest = savings.map({ $0.date }).min() {
+                      savingsTrackingStart = earliest
+                  } else {
+                      savingsTrackingStart = Calendar.current.startOfDay(for: Date())
+                  }
+
+                  if UserDefaults.standard.object(forKey: savingsTrackingBaselineKey) != nil {
+                      savingsTrackingBaseline = UserDefaults.standard.double(forKey: savingsTrackingBaselineKey)
                   }
               }
 
@@ -214,6 +248,11 @@ jobs:
                   if let data = try? encoder.encode(savings) {
                       UserDefaults.standard.set(data, forKey: savingsKey)
                   }
+              }
+
+              private func saveSavingsTracking() {
+                  UserDefaults.standard.set(savingsTrackingStart, forKey: savingsTrackingStartKey)
+                  UserDefaults.standard.set(savingsTrackingBaseline, forKey: savingsTrackingBaselineKey)
               }
 
               func add(amount: Double, category: BudgetCategory, note: String, date: Date) {
@@ -242,6 +281,11 @@ jobs:
               func deleteSaving(_ entry: SavingsEntry) {
                   savings.removeAll { $0.id == entry.id }
               }
+
+              func resetSavingsTracking() {
+                  savingsTrackingBaseline = savings.reduce(0) { $0 + $1.amount }
+                  savingsTrackingStart = Calendar.current.startOfDay(for: Date())
+              }
           }
 
           struct BudgetPeriod {
@@ -249,6 +293,24 @@ jobs:
               let nextPayday: Date
               let freeBudget: Double
           }
+
+          struct PaydaySchedule {
+              let nominalDay: Int
+              let income: Double
+              let savings: Double
+              let freeBudget: Double
+          }
+
+          struct PaydayEvent {
+              let date: Date
+              let schedule: PaydaySchedule
+          }
+
+          private let paydaySchedules: [PaydaySchedule] = [
+              PaydaySchedule(nominalDay: 7, income: 65_000, savings: 10_000, freeBudget: 17_000),
+              PaydaySchedule(nominalDay: 17, income: 24_000, savings: 10_000, freeBudget: 14_000),
+              PaydaySchedule(nominalDay: 22, income: 65_000, savings: 30_000, freeBudget: 28_500)
+          ]
           
           struct Bill: Identifiable {
               let id = UUID()
@@ -269,6 +331,7 @@ jobs:
               Bill(day: 4, title: "Интернет", amount: 1_000),
               Bill(day: 13, title: "Цветы / подарок", amount: 3_000),
               Bill(day: 14, title: "Квартира", amount: 35_000),
+              Bill(day: 18, title: "Парикмахерская", amount: 2_300),
               Bill(day: 26, title: "Подписка GPT", amount: 2_000),
               Bill(day: 31, title: "Проездной + мобильный", amount: 3_500, lastDayOfMonth: true)
           ]
@@ -280,45 +343,63 @@ jobs:
           func makeDate(year: Int, month: Int, day: Int) -> Date {
               Calendar.current.date(from: DateComponents(year: year, month: month, day: day)) ?? Date()
           }
+
+          func adjustedPayday(year: Int, month: Int, nominalDay: Int) -> Date {
+              let cal = Calendar.current
+              let scheduled = startOfDay(makeDate(year: year, month: month, day: nominalDay))
+              let weekday = cal.component(.weekday, from: scheduled)
+
+              if weekday == 7 {
+                  return cal.date(byAdding: .day, value: -1, to: scheduled) ?? scheduled
+              }
+
+              if weekday == 1 {
+                  return cal.date(byAdding: .day, value: -2, to: scheduled) ?? scheduled
+              }
+
+              return scheduled
+          }
+
+          func paydayEvents(around date: Date) -> [PaydayEvent] {
+              let cal = Calendar.current
+              let components = cal.dateComponents([.year, .month], from: date)
+              let monthStart = makeDate(year: components.year!, month: components.month!, day: 1)
+              var result: [PaydayEvent] = []
+
+              for offset in -2...2 {
+                  guard let targetMonth = cal.date(byAdding: .month, value: offset, to: monthStart) else { continue }
+                  let target = cal.dateComponents([.year, .month], from: targetMonth)
+                  guard let year = target.year, let month = target.month else { continue }
+
+                  for schedule in paydaySchedules {
+                      result.append(
+                          PaydayEvent(
+                              date: adjustedPayday(year: year, month: month, nominalDay: schedule.nominalDay),
+                              schedule: schedule
+                          )
+                      )
+                  }
+              }
+
+              return result.sorted { $0.date < $1.date }
+          }
           
           func period(for now: Date) -> BudgetPeriod {
-              let cal = Calendar.current
-              let c = cal.dateComponents([.year, .month, .day], from: now)
-              let y = c.year!
-              let m = c.month!
-              let d = c.day!
-          
-              if d >= 7 && d < 17 {
-                  return BudgetPeriod(
-                      start: makeDate(year: y, month: m, day: 7),
-                      nextPayday: makeDate(year: y, month: m, day: 17),
-                      freeBudget: 17_000
-                  )
+              let today = startOfDay(now)
+              let events = paydayEvents(around: today)
+
+              guard let currentIndex = events.lastIndex(where: { $0.date <= today }) else {
+                  return BudgetPeriod(start: today, nextPayday: today, freeBudget: 0)
               }
-          
-              if d >= 17 && d < 22 {
-                  return BudgetPeriod(
-                      start: makeDate(year: y, month: m, day: 17),
-                      nextPayday: makeDate(year: y, month: m, day: 22),
-                      freeBudget: 14_000
-                  )
-              }
-          
-              if d >= 22 {
-                  let next = cal.date(byAdding: .month, value: 1, to: makeDate(year: y, month: m, day: 7))!
-                  return BudgetPeriod(
-                      start: makeDate(year: y, month: m, day: 22),
-                      nextPayday: next,
-                      freeBudget: 28_500
-                  )
-              }
-          
-              let prevMonth = cal.date(byAdding: .month, value: -1, to: now)!
-              let pc = cal.dateComponents([.year, .month], from: prevMonth)
+
+              let currentEvent = events[currentIndex]
+              let nextIndex = min(currentIndex + 1, events.count - 1)
+              let nextEvent = events[nextIndex]
+
               return BudgetPeriod(
-                  start: makeDate(year: pc.year!, month: pc.month!, day: 22),
-                  nextPayday: makeDate(year: y, month: m, day: 7),
-                  freeBudget: 28_500
+                  start: currentEvent.date,
+                  nextPayday: nextEvent.date,
+                  freeBudget: currentEvent.schedule.freeBudget
               )
           }
           
@@ -417,7 +498,7 @@ jobs:
               private func categorySpentMonthly(_ category: BudgetCategory) -> Double {
                   let cal = Calendar.current
                   return store.expenses.filter {
-                      $0.category == category &&
+                      $0.category.budgetGroup == category &&
                       cal.component(.year, from: $0.date) == cal.component(.year, from: now) &&
                       cal.component(.month, from: $0.date) == cal.component(.month, from: now)
                   }.reduce(0) { $0 + $1.amount }
@@ -425,7 +506,7 @@ jobs:
 
               private func categorySpentInPeriod(_ category: BudgetCategory) -> Double {
                   store.expenses.filter {
-                      $0.category == category &&
+                      $0.category.budgetGroup == category &&
                       $0.date >= current.start &&
                       $0.date < current.nextPayday
                   }.reduce(0) { $0 + $1.amount }
@@ -760,6 +841,8 @@ jobs:
                   case .food: return .budgetFood
                   case .fun: return .budgetFun
                   case .other: return .budgetOther
+                  case .haircut:
+                      return .budgetOther
                   case .rent, .gptSubscription, .mobile, .internet:
                       return Color(red: 0.94, green: 0.95, blue: 0.97)
                   }
@@ -955,6 +1038,7 @@ jobs:
           struct SavingsView: View {
               @EnvironmentObject var store: BudgetStore
               @State private var showAdd = false
+              @State private var showResetConfirmation = false
 
               private let monthlyGoal: Double = 50_000
               private var now: Date { startOfDay(Date()) }
@@ -971,12 +1055,34 @@ jobs:
                   monthSavings.reduce(0) { $0 + $1.amount }
               }
 
-              private var allTimeTotal: Double {
+              private var lifetimeSavingsTotal: Double {
                   store.savings.reduce(0) { $0 + $1.amount }
+              }
+
+              private var trackedTotal: Double {
+                  max(0, lifetimeSavingsTotal - store.savingsTrackingBaseline)
+              }
+
+              private var trackingDays: Int {
+                  let days = Calendar.current.dateComponents(
+                      [.day],
+                      from: startOfDay(store.savingsTrackingStart),
+                      to: now
+                  ).day ?? 0
+                  return max(1, days + 1)
               }
 
               private var progress: Double {
                   min(1, monthTotal / monthlyGoal)
+              }
+
+              private func daysWord(_ n: Int) -> String {
+                  let n100 = n % 100
+                  let n10 = n % 10
+                  if n100 >= 11 && n100 <= 19 { return "дней" }
+                  if n10 == 1 { return "день" }
+                  if (2...4).contains(n10) { return "дня" }
+                  return "дней"
               }
 
               var body: some View {
@@ -1033,14 +1139,27 @@ jobs:
                               .budgetCard()
 
                               HStack(spacing: 12) {
-                                  VStack(alignment: .leading, spacing: 7) {
-                                      Text("Всего накоплено")
-                                          .foregroundStyle(Color.budgetMuted)
-                                          .font(.system(size: 14))
-                                      Text(money(allTimeTotal))
+                                  VStack(alignment: .leading, spacing: 6) {
+                                      HStack {
+                                          Text("Всего накоплено")
+                                              .foregroundStyle(Color.budgetMuted)
+                                              .font(.system(size: 14))
+                                          Spacer()
+                                          Button("Сбросить") {
+                                              showResetConfirmation = true
+                                          }
+                                          .font(.system(size: 11, weight: .semibold))
+                                      }
+
+                                      Text(money(trackedTotal))
                                           .font(.system(size: 24, weight: .bold))
+
+                                      Text("с \(dateShort(store.savingsTrackingStart)) · \(trackingDays) \(daysWord(trackingDays))")
+                                          .font(.system(size: 11))
+                                          .foregroundStyle(Color.budgetMuted)
+                                          .lineLimit(2)
                                   }
-                                  .frame(maxWidth: .infinity, minHeight: 90, alignment: .topLeading)
+                                  .frame(maxWidth: .infinity, minHeight: 100, alignment: .topLeading)
                                   .budgetCard()
 
                                   VStack(alignment: .leading, spacing: 7) {
@@ -1050,7 +1169,7 @@ jobs:
                                       Text("\(monthSavings.count)")
                                           .font(.system(size: 24, weight: .bold))
                                   }
-                                  .frame(maxWidth: .infinity, minHeight: 90, alignment: .topLeading)
+                                  .frame(maxWidth: .infinity, minHeight: 100, alignment: .topLeading)
                                   .budgetCard()
                               }
 
@@ -1101,6 +1220,18 @@ jobs:
                       .toolbar(.hidden, for: .navigationBar)
                       .sheet(isPresented: $showAdd) {
                           AddSavingView().environmentObject(store)
+                      }
+                      .confirmationDialog(
+                          "Сбросить общий счётчик накоплений?",
+                          isPresented: $showResetConfirmation,
+                          titleVisibility: .visible
+                      ) {
+                          Button("Сбросить", role: .destructive) {
+                              store.resetSavingsTracking()
+                          }
+                          Button("Отмена", role: .cancel) {}
+                      } message: {
+                          Text("Общий счётчик начнётся заново с сегодняшней даты. История накоплений и прогресс текущего месяца сохранятся.")
                       }
                   }
               }
@@ -1156,18 +1287,63 @@ jobs:
                   dailyData.max { $0.amount < $1.amount }
               }
 
+              private func csvField(_ value: String) -> String {
+                  let escaped = value.replacingOccurrences(of: """, with: """")
+                  return ""\(escaped)""
+              }
+
+              private var exportURL: URL {
+                  let filenameFormatter = DateFormatter()
+                  filenameFormatter.dateFormat = "yyyy-MM-dd"
+                  let filename = "rashody_\(filenameFormatter.string(from: now)).csv"
+                  let url = FileManager.default.temporaryDirectory.appendingPathComponent(filename)
+
+                  let dateFormatter = DateFormatter()
+                  dateFormatter.locale = Locale(identifier: "ru_RU")
+                  dateFormatter.dateFormat = "dd.MM.yyyy"
+
+                  var rows = ["Дата;Категория;Комментарий;Сумма"]
+                  for expense in store.expenses.sorted(by: { $0.date < $1.date }) {
+                      let amount = String(format: "%.2f", expense.amount).replacingOccurrences(of: ".", with: ",")
+                      rows.append([
+                          csvField(dateFormatter.string(from: expense.date)),
+                          csvField(expense.category.title),
+                          csvField(expense.note),
+                          csvField(amount)
+                      ].joined(separator: ";"))
+                  }
+
+                  let csv = "\u{FEFF}" + rows.joined(separator: "\n")
+                  try? csv.data(using: .utf8)?.write(to: url, options: .atomic)
+                  return url
+              }
+
               var body: some View {
                   NavigationStack {
                       ScrollView {
                           LazyVStack(spacing: 14) {
-                              VStack(alignment: .leading, spacing: 3) {
-                                  Text("Аналитика")
-                                      .font(.system(size: 32, weight: .bold))
-                                  Text("Динамика трат по дням")
-                                      .font(.system(size: 15))
-                                      .foregroundStyle(Color.budgetMuted)
+                              HStack(alignment: .top) {
+                                  VStack(alignment: .leading, spacing: 3) {
+                                      Text("Аналитика")
+                                          .font(.system(size: 32, weight: .bold))
+                                      Text("Динамика трат по дням")
+                                          .font(.system(size: 15))
+                                          .foregroundStyle(Color.budgetMuted)
+                                  }
+
+                                  Spacer()
+
+                                  ShareLink(item: exportURL) {
+                                      Label("CSV", systemImage: "square.and.arrow.up")
+                                          .font(.system(size: 14, weight: .semibold))
+                                          .foregroundStyle(Color.budgetText)
+                                          .padding(.horizontal, 13)
+                                          .padding(.vertical, 11)
+                                          .background(Color.white)
+                                          .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                                          .shadow(color: .black.opacity(0.05), radius: 4, y: 2)
+                                  }
                               }
-                              .frame(maxWidth: .infinity, alignment: .leading)
                               .padding(.top, 12)
 
                               VStack(alignment: .leading, spacing: 16) {
@@ -1251,8 +1427,14 @@ jobs:
                               }
 
                               VStack(alignment: .leading, spacing: 12) {
-                                  Text("По категориям за месяц")
-                                      .font(.system(size: 22, weight: .bold))
+                                  HStack {
+                                      Text("По категориям за месяц")
+                                          .font(.system(size: 22, weight: .bold))
+                                      Spacer()
+                                      Text("CSV — все расходы")
+                                          .font(.system(size: 11))
+                                          .foregroundStyle(Color.budgetMuted)
+                                  }
 
                                   ForEach(BudgetCategory.allCases) { category in
                                       let total = monthExpenses
@@ -1380,6 +1562,8 @@ jobs:
                                       detail: "В накопления: 30 000 ₽"
                                   )
 
+                                  WikiBullet(text: "Если 7-е, 17-е или 22-е выпадает на субботу или воскресенье, приложение переносит выплату на предыдущую пятницу.")
+                                  WikiBullet(text: "Период бюджета, следующая выплата, число оставшихся дней и дневной лимит считаются от фактической перенесённой даты.")
                                   WikiBullet(text: "Плановые 10 000 ₽ + 10 000 ₽ + 30 000 ₽ уже учтены в расчёте свободного бюджета по периодам.")
                               }
                               .budgetCard()
@@ -1420,13 +1604,15 @@ jobs:
                                   Divider()
                                   WikiInfoRow(title: "Квартира", value: "35 000 ₽", detail: "14-го числа")
                                   Divider()
+                                  WikiInfoRow(title: "Парикмахерская", value: "2 300 ₽", detail: "18-го числа · из категории «Прочее»")
+                                  Divider()
                                   WikiInfoRow(title: "Подписка GPT", value: "2 000 ₽", detail: "26-го числа")
                                   Divider()
                                   WikiInfoRow(title: "Проездной", value: "3 000 ₽", detail: "31-го числа")
                                   Divider()
                                   WikiInfoRow(title: "Мобильная связь", value: "500 ₽", detail: "31-го числа")
 
-                                  WikiBullet(text: "Всего обязательных платежей: 44 500 ₽ в месяц.")
+                                  WikiBullet(text: "Фиксированные платежи вне свободного бюджета: 44 500 ₽ в месяц. Парикмахерская 2 300 ₽ — обязательная трата, но она финансируется внутри лимита «Прочее» и не вычитается второй раз.")
                               }
                               .budgetCard()
 
@@ -1472,7 +1658,9 @@ jobs:
                                   Divider()
                                   WikiInfoRow(title: "Развлечения", value: "10 000 ₽", detail: "Уменьшает свободный бюджет")
                                   Divider()
-                                  WikiInfoRow(title: "Прочее", value: "14 000 ₽", detail: "Уменьшает свободный бюджет")
+                                  WikiInfoRow(title: "Прочее", value: "14 000 ₽", detail: "Уменьшает свободный бюджет; сюда входит парикмахерская")
+                                  Divider()
+                                  WikiInfoRow(title: "Парикмахерская", value: "2 300 ₽", detail: "18-го числа; учитывается внутри «Прочее»")
                                   Divider()
                                   WikiInfoRow(title: "Квартира", value: "35 000 ₽", detail: "Уже зарезервирована отдельно")
                                   Divider()
@@ -1491,7 +1679,7 @@ jobs:
                                       .font(.system(size: 22, weight: .bold))
 
                                   WikiBullet(text: "Приложение определяет текущий период по сегодняшней дате: 7–17, 17–22 или 22–7.")
-                                  WikiBullet(text: "Из свободного бюджета периода вычитаются внесённые расходы категорий «Еда», «Развлечения» и «Прочее».")
+                                  WikiBullet(text: "Из свободного бюджета периода вычитаются внесённые расходы категорий «Еда», «Развлечения», «Прочее» и «Парикмахерская». Парикмахерская одновременно учитывается внутри лимита «Прочее».")
                                   WikiBullet(text: "Оставшаяся сумма делится на количество дней до следующей выплаты.")
                                   WikiBullet(text: "После добавления, изменения или удаления расхода дневной лимит пересчитывается автоматически.")
                                   WikiBullet(text: "Показатель «Потрачено сегодня» для дневного лимита учитывает только свободные категории, чтобы обязательные платежи не списывались дважды.")
@@ -1505,7 +1693,8 @@ jobs:
                                   WikiInfoRow(title: "Цель на месяц", value: "50 000 ₽")
                                   WikiBullet(text: "Вкладка «Накопления» используется для фактического учёта переводов в накопления: сумму, дату и комментарий можно вносить вручную.")
                                   WikiBullet(text: "Плановые суммы 10 000 ₽ / 10 000 ₽ / 30 000 ₽ не создают записи автоматически, потому что они уже заложены в бюджетные периоды.")
-                                  WikiBullet(text: "Отображаются накопления за текущий месяц, процент выполнения цели и общая сумма всех внесённых накоплений.")
+                                  WikiBullet(text: "Отображаются накопления за текущий месяц и процент выполнения цели. Общий счётчик показывает, с какой даты и за сколько дней накоплена сумма.")
+                                  WikiBullet(text: "Кнопка «Сбросить» обнуляет только общий счётчик и начинает новый срок с сегодняшнего дня. История и прогресс текущего месяца сохраняются.")
                               }
                               .budgetCard()
 
@@ -1514,6 +1703,7 @@ jobs:
                                       .font(.system(size: 22, weight: .bold))
 
                                   WikiBullet(text: "График показывает фактические траты по каждому дню текущего месяца.")
+                                  WikiBullet(text: "Кнопка CSV в аналитике формирует выгрузку всех расходов: дата, категория, комментарий и сумма. Через системное меню iPhone файл можно сохранить в «Файлы» или отправить.")
                                   WikiBullet(text: "В аналитику входят все категории, включая обязательные расходы.")
                                   WikiBullet(text: "Также показываются сумма за месяц, среднее за день с расходами, самый затратный день и разбивка по категориям.")
                                   WikiBullet(text: "Любой расход можно изменить или удалить; сумма, категория, комментарий и дата редактируются.")
