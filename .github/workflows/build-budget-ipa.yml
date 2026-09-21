@@ -1288,8 +1288,9 @@ jobs:
               }
 
               private func csvField(_ value: String) -> String {
-                  let escaped = value.replacingOccurrences(of: """, with: """")
-                  return ""\(escaped)""
+                  let quote = String(UnicodeScalar(34)!)
+                  let escaped = value.replacingOccurrences(of: quote, with: quote + quote)
+                  return quote + escaped + quote
               }
 
               private var exportURL: URL {
