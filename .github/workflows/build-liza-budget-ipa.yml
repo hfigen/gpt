@@ -1,0 +1,2060 @@
+name: Build Liza Budget IPA
+
+on:
+  push:
+    paths:
+      - '.github/workflows/build-liza-budget-ipa.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Create project
+        run: |
+          mkdir -p LizaBudget/App LizaBudget/Resources
+
+          cat > LizaBudget/project.yml <<'EOF'
+          name: LizaBudget
+          options:
+            deploymentTarget:
+              iOS: "17.0"
+          targets:
+            LizaBudget:
+              type: application
+              platform: iOS
+              sources:
+                - path: App
+              resources:
+                - path: Resources
+              settings:
+                base:
+                  PRODUCT_BUNDLE_IDENTIFIER: com.hfigen.lizabudget
+                  PRODUCT_NAME: LizaBudget
+                  PRODUCT_MODULE_NAME: LizaBudget
+                  CURRENT_PROJECT_VERSION: 1
+                  MARKETING_VERSION: 1.0.0
+                  GENERATE_INFOPLIST_FILE: NO
+                  INFOPLIST_FILE: App/Info.plist
+                  TARGETED_DEVICE_FAMILY: "1"
+                  SWIFT_VERSION: "5.0"
+                  IPHONEOS_DEPLOYMENT_TARGET: "17.0"
+          EOF
+
+          cat > LizaBudget/App/Info.plist <<'PLIST'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>CFBundleDevelopmentRegion</key>
+              <string>$(DEVELOPMENT_LANGUAGE)</string>
+              <key>CFBundleDisplayName</key>
+              <string>Бюджет Лизы</string>
+              <key>CFBundleExecutable</key>
+              <string>$(EXECUTABLE_NAME)</string>
+              <key>CFBundleIdentifier</key>
+              <string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+              <key>CFBundleInfoDictionaryVersion</key>
+              <string>6.0</string>
+              <key>CFBundleName</key>
+              <string>$(PRODUCT_NAME)</string>
+              <key>CFBundlePackageType</key>
+              <string>$(PRODUCT_BUNDLE_PACKAGE_TYPE)</string>
+              <key>CFBundleShortVersionString</key>
+              <string>$(MARKETING_VERSION)</string>
+              <key>CFBundleVersion</key>
+              <string>$(CURRENT_PROJECT_VERSION)</string>
+              <key>LSRequiresIPhoneOS</key>
+              <true/>
+              <key>UILaunchStoryboardName</key>
+              <string>LaunchScreen</string>
+              <key>UIRequiresFullScreen</key>
+              <true/>
+              <key>UISupportedInterfaceOrientations</key>
+              <array>
+                  <string>UIInterfaceOrientationPortrait</string>
+              </array>
+          </dict>
+          </plist>
+          PLIST
+
+          cat > LizaBudget/Resources/LaunchScreen.storyboard <<'STORYBOARD'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <document type="com.apple.InterfaceBuilder3.CocoaTouch.Storyboard.XIB" version="3.0" toolsVersion="23096" targetRuntime="iOS.CocoaTouch" propertyAccessControl="none" useAutolayout="YES" launchScreen="YES" colorMatched="YES" initialViewController="01J-lp-oVM">
+              <device id="retina6_12" orientation="portrait" appearance="light"/>
+              <dependencies>
+                  <plugIn identifier="com.apple.InterfaceBuilder.IBCocoaTouchPlugin" version="23084"/>
+                  <capability name="Safe area layout guides" minToolsVersion="9.0"/>
+                  <capability name="documents saved in the Xcode 8 format" minToolsVersion="8.0"/>
+              </dependencies>
+              <scenes>
+                  <scene sceneID="EHf-IW-A2E">
+                      <objects>
+                          <viewController id="01J-lp-oVM" sceneMemberID="viewController">
+                              <view key="view" contentMode="scaleToFill" id="Ze5-6b-2t3">
+                                  <rect key="frame" x="0.0" y="0.0" width="393" height="852"/>
+                                  <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+                                  <viewLayoutGuide key="safeArea" id="Bcu-3y-fUS"/>
+                                  <color key="backgroundColor" red="0.978" green="0.964" blue="0.985" alpha="1" colorSpace="custom" customColorSpace="sRGB"/>
+                              </view>
+                          </viewController>
+                          <placeholder placeholderIdentifier="IBFirstResponder" id="iYj-Kq-Ea1" userLabel="First Responder" sceneMemberID="firstResponder"/>
+                      </objects>
+                  </scene>
+              </scenes>
+          </document>
+          STORYBOARD
+
+          cat > LizaBudget/App/LizaBudgetApp.swift <<'SWIFT'
+          import SwiftUI
+          import Charts
+          
+          // MARK: - Models
+          
+          enum LivingCategory: String, Codable, CaseIterable, Identifiable {
+              case food, cafe, beauty, fun, clothes, other
+          
+              var id: String { rawValue }
+          
+              var title: String {
+                  switch self {
+                  case .food: return "Еда"
+                  case .cafe: return "Кафе"
+                  case .beauty: return "Красота"
+                  case .fun: return "Развлечения"
+                  case .clothes: return "Одежда"
+                  case .other: return "Прочее"
+                  }
+              }
+          
+              var systemImage: String {
+                  switch self {
+                  case .food: return "cart"
+                  case .cafe: return "cup.and.saucer"
+                  case .beauty: return "sparkles"
+                  case .fun: return "party.popper"
+                  case .clothes: return "tshirt"
+                  case .other: return "ellipsis.circle"
+                  }
+              }
+          }
+          
+          enum CreditCardIssuer: String, Codable, CaseIterable, Identifiable {
+              case yandex, sber, tinkoff
+              var id: String { rawValue }
+          
+              var title: String {
+                  switch self {
+                  case .yandex: return "Яндекс"
+                  case .sber: return "Сбер"
+                  case .tinkoff: return "Тинькофф"
+                  }
+              }
+          }
+          
+          struct Expense: Identifiable, Codable {
+              var id = UUID()
+              var amount: Double
+              var category: LivingCategory
+              var note: String
+              var date: Date
+          }
+          
+          struct SavingEntry: Identifiable, Codable {
+              var id = UUID()
+              var amount: Double
+              var note: String
+              var date: Date
+          }
+          
+          struct CreditCardPayment: Identifiable, Codable {
+              var id = UUID()
+              var issuer: CreditCardIssuer
+              var amount: Double
+              var dueDate: Date
+          }
+          
+          struct FixedBillOccurrence: Identifiable {
+              let id = UUID()
+              let title: String
+              let amount: Double
+              let dueDate: Date
+              let detail: String
+          }
+          
+          struct PaydayEvent: Identifiable {
+              let id: String
+              let actualDate: Date
+              let nominalDay: Int
+              let payMonthStart: Date
+              let expectedAmount: Double
+              let workPeriodText: String
+          }
+          
+          struct PayPeriod {
+              let current: PaydayEvent
+              let next: PaydayEvent
+          }
+          
+          struct DailyPoint: Identifiable {
+              let id = UUID()
+              let date: Date
+              let amount: Double
+          }
+          
+          // MARK: - Store
+          
+          final class LizaBudgetStore: ObservableObject {
+              @Published var expenses: [Expense] = [] { didSet { saveExpenses() } }
+              @Published var savings: [SavingEntry] = [] { didSet { saveSavings() } }
+              @Published var cardPayments: [CreditCardPayment] = [] { didSet { saveCards() } }
+              @Published var incomeOverrides: [String: Double] = [:] { didSet { saveIncomeOverrides() } }
+          
+              @Published var savingsTrackingStart: Date = Calendar.current.startOfDay(for: Date()) {
+                  didSet { saveSavingsTracking() }
+              }
+              @Published var savingsTrackingBaseline: Double = 0 {
+                  didSet { saveSavingsTracking() }
+              }
+          
+              private let expensesKey = "liza_expenses_v1"
+              private let savingsKey = "liza_savings_v1"
+              private let cardsKey = "liza_cards_v1"
+              private let incomeKey = "liza_income_overrides_v1"
+              private let trackStartKey = "liza_savings_tracking_start_v1"
+              private let trackBaselineKey = "liza_savings_tracking_baseline_v1"
+          
+              init() {
+                  let decoder = JSONDecoder()
+                  decoder.dateDecodingStrategy = .iso8601
+          
+                  if let data = UserDefaults.standard.data(forKey: expensesKey),
+                     let value = try? decoder.decode([Expense].self, from: data) {
+                      expenses = value
+                  }
+                  if let data = UserDefaults.standard.data(forKey: savingsKey),
+                     let value = try? decoder.decode([SavingEntry].self, from: data) {
+                      savings = value
+                  }
+                  if let data = UserDefaults.standard.data(forKey: cardsKey),
+                     let value = try? decoder.decode([CreditCardPayment].self, from: data) {
+                      cardPayments = value
+                  }
+                  if let data = UserDefaults.standard.data(forKey: incomeKey),
+                     let value = try? decoder.decode([String: Double].self, from: data) {
+                      incomeOverrides = value
+                  }
+          
+                  if let date = UserDefaults.standard.object(forKey: trackStartKey) as? Date {
+                      savingsTrackingStart = date
+                  } else if let earliest = savings.map({ $0.date }).min() {
+                      savingsTrackingStart = earliest
+                  }
+          
+                  if UserDefaults.standard.object(forKey: trackBaselineKey) != nil {
+                      savingsTrackingBaseline = UserDefaults.standard.double(forKey: trackBaselineKey)
+                  }
+              }
+          
+              private func encode<T: Encodable>(_ value: T, key: String) {
+                  let encoder = JSONEncoder()
+                  encoder.dateEncodingStrategy = .iso8601
+                  if let data = try? encoder.encode(value) {
+                      UserDefaults.standard.set(data, forKey: key)
+                  }
+              }
+          
+              private func saveExpenses() { encode(expenses, key: expensesKey) }
+              private func saveSavings() { encode(savings, key: savingsKey) }
+              private func saveCards() { encode(cardPayments, key: cardsKey) }
+              private func saveIncomeOverrides() { encode(incomeOverrides, key: incomeKey) }
+          
+              private func saveSavingsTracking() {
+                  UserDefaults.standard.set(savingsTrackingStart, forKey: trackStartKey)
+                  UserDefaults.standard.set(savingsTrackingBaseline, forKey: trackBaselineKey)
+              }
+          
+              func addExpense(amount: Double, category: LivingCategory, note: String, date: Date) {
+                  expenses.append(Expense(amount: amount, category: category, note: note, date: startOfDay(date)))
+              }
+          
+              func updateExpense(_ expense: Expense, amount: Double, category: LivingCategory, note: String, date: Date) {
+                  guard let i = expenses.firstIndex(where: { $0.id == expense.id }) else { return }
+                  expenses[i] = Expense(id: expense.id, amount: amount, category: category, note: note, date: startOfDay(date))
+              }
+          
+              func deleteExpense(_ expense: Expense) {
+                  expenses.removeAll { $0.id == expense.id }
+              }
+          
+              func addSaving(amount: Double, note: String, date: Date) {
+                  savings.append(SavingEntry(amount: amount, note: note, date: startOfDay(date)))
+              }
+          
+              func updateSaving(_ entry: SavingEntry, amount: Double, note: String, date: Date) {
+                  guard let i = savings.firstIndex(where: { $0.id == entry.id }) else { return }
+                  savings[i] = SavingEntry(id: entry.id, amount: amount, note: note, date: startOfDay(date))
+              }
+          
+              func deleteSaving(_ entry: SavingEntry) {
+                  savings.removeAll { $0.id == entry.id }
+              }
+          
+              func resetSavingsCounter() {
+                  savingsTrackingBaseline = savings.reduce(0) { $0 + $1.amount }
+                  savingsTrackingStart = startOfDay(Date())
+              }
+          
+              func addCardPayment(issuer: CreditCardIssuer, amount: Double, dueDate: Date) {
+                  cardPayments.append(CreditCardPayment(issuer: issuer, amount: amount, dueDate: startOfDay(dueDate)))
+              }
+          
+              func updateCardPayment(_ payment: CreditCardPayment, issuer: CreditCardIssuer, amount: Double, dueDate: Date) {
+                  guard let i = cardPayments.firstIndex(where: { $0.id == payment.id }) else { return }
+                  cardPayments[i] = CreditCardPayment(id: payment.id, issuer: issuer, amount: amount, dueDate: startOfDay(dueDate))
+              }
+          
+              func deleteCardPayment(_ payment: CreditCardPayment) {
+                  cardPayments.removeAll { $0.id == payment.id }
+              }
+          
+              func setIncome(event: PaydayEvent, amount: Double) {
+                  incomeOverrides[event.id] = amount
+              }
+          
+              func clearIncomeOverride(event: PaydayEvent) {
+                  incomeOverrides.removeValue(forKey: event.id)
+              }
+          
+              func income(for event: PaydayEvent) -> Double {
+                  incomeOverrides[event.id] ?? event.expectedAmount
+              }
+          }
+          
+          // MARK: - Calendar and salary
+          
+          let monthlySalary: Double = 113_100
+          
+          func startOfDay(_ date: Date) -> Date {
+              Calendar.current.startOfDay(for: date)
+          }
+          
+          func makeDate(year: Int, month: Int, day: Int) -> Date {
+              Calendar.current.date(from: DateComponents(year: year, month: month, day: day)) ?? Date()
+          }
+          
+          func monthStart(_ date: Date) -> Date {
+              let c = Calendar.current.dateComponents([.year, .month], from: date)
+              return makeDate(year: c.year!, month: c.month!, day: 1)
+          }
+          
+          func dateKey(_ date: Date) -> String {
+              let f = DateFormatter()
+              f.locale = Locale(identifier: "en_US_POSIX")
+              f.dateFormat = "yyyy-MM-dd"
+              return f.string(from: date)
+          }
+          
+          // Approved Russian production calendars used by the app.
+          // 2026: Government Resolution No. 1466 of 24.09.2025.
+          // 2027: Government Resolution No. 1187 of 17.09.2026.
+          private let forcedNonWorking: Set<String> = [
+              // 2026 weekdays made non-working
+              "2026-01-01","2026-01-02","2026-01-05","2026-01-06","2026-01-07","2026-01-08","2026-01-09",
+              "2026-02-23","2026-03-09","2026-05-01","2026-05-11","2026-06-12","2026-11-04","2026-12-31",
+          
+              // 2027 weekdays made non-working
+              "2027-01-01","2027-01-04","2027-01-05","2027-01-06","2027-01-07","2027-01-08",
+              "2027-02-22","2027-02-23","2027-03-08","2027-05-03","2027-05-10","2027-06-14",
+              "2027-11-04","2027-11-05","2027-12-31"
+          ]
+          
+          private let forcedWorking: Set<String> = [
+              "2027-02-20"
+          ]
+          
+          func isWorkingDay(_ date: Date) -> Bool {
+              let key = dateKey(date)
+              if forcedWorking.contains(key) { return true }
+              if forcedNonWorking.contains(key) { return false }
+          
+              let weekday = Calendar.current.component(.weekday, from: date)
+              return weekday != 1 && weekday != 7
+          }
+          
+          func daysInMonth(_ month: Date) -> Int {
+              Calendar.current.range(of: .day, in: .month, for: month)?.count ?? 30
+          }
+          
+          func workingDays(in month: Date, from startDay: Int? = nil, through endDay: Int? = nil) -> Int {
+              let c = Calendar.current.dateComponents([.year, .month], from: month)
+              let maxDay = daysInMonth(month)
+              let first = max(1, startDay ?? 1)
+              let last = min(maxDay, endDay ?? maxDay)
+          
+              guard first <= last else { return 0 }
+          
+              return (first...last).reduce(0) { count, day in
+                  let d = makeDate(year: c.year!, month: c.month!, day: day)
+                  return count + (isWorkingDay(d) ? 1 : 0)
+              }
+          }
+          
+          func adjustedPayday(year: Int, month: Int, nominalDay: Int) -> Date {
+              let date = startOfDay(makeDate(year: year, month: month, day: nominalDay))
+              let weekday = Calendar.current.component(.weekday, from: date)
+          
+              if weekday == 7 {
+                  return Calendar.current.date(byAdding: .day, value: -1, to: date) ?? date
+              }
+              if weekday == 1 {
+                  return Calendar.current.date(byAdding: .day, value: -2, to: date) ?? date
+              }
+              return date
+          }
+          
+          func expectedPay(nominalDay: Int, payMonth: Date) -> (amount: Double, text: String) {
+              let cal = Calendar.current
+              let referenceMonth: Date
+              let fromDay: Int
+              let throughDay: Int
+          
+              if nominalDay == 20 {
+                  referenceMonth = payMonth
+                  fromDay = 1
+                  throughDay = 15
+              } else {
+                  referenceMonth = cal.date(byAdding: .month, value: -1, to: payMonth) ?? payMonth
+                  fromDay = 16
+                  throughDay = daysInMonth(referenceMonth)
+              }
+          
+              let total = workingDays(in: referenceMonth)
+              let segment = workingDays(in: referenceMonth, from: fromDay, through: throughDay)
+          
+              guard total > 0 else { return (0, "") }
+          
+              let amount = (monthlySalary / Double(total) * Double(segment)).rounded()
+              let f = DateFormatter()
+              f.locale = Locale(identifier: "ru_RU")
+              f.dateFormat = "LLLL yyyy"
+          
+              let text = "\(fromDay)–\(throughDay) \(f.string(from: referenceMonth)) · \(segment) раб. дн. из \(total)"
+              return (amount, text)
+          }
+          
+          func paydayEvents(around date: Date) -> [PaydayEvent] {
+              let cal = Calendar.current
+              let base = monthStart(date)
+              var events: [PaydayEvent] = []
+          
+              for offset in -4...4 {
+                  guard let payMonth = cal.date(byAdding: .month, value: offset, to: base) else { continue }
+                  let c = cal.dateComponents([.year, .month], from: payMonth)
+                  guard let y = c.year, let m = c.month else { continue }
+          
+                  for nominal in [5, 20] {
+                      let actual = adjustedPayday(year: y, month: m, nominalDay: nominal)
+                      let calc = expectedPay(nominalDay: nominal, payMonth: payMonth)
+                      events.append(
+                          PaydayEvent(
+                              id: "\(dateKey(actual))_\(nominal)",
+                              actualDate: actual,
+                              nominalDay: nominal,
+                              payMonthStart: payMonth,
+                              expectedAmount: calc.amount,
+                              workPeriodText: calc.text
+                          )
+                      )
+                  }
+              }
+          
+              return events.sorted { $0.actualDate < $1.actualDate }
+          }
+          
+          func currentPayPeriod(_ date: Date) -> PayPeriod {
+              let today = startOfDay(date)
+              let events = paydayEvents(around: today)
+              let index = events.lastIndex(where: { $0.actualDate <= today }) ?? 0
+              return PayPeriod(
+                  current: events[index],
+                  next: events[min(index + 1, events.count - 1)]
+              )
+          }
+          
+          func fixedBills(for event: PaydayEvent) -> [FixedBillOccurrence] {
+              let c = Calendar.current.dateComponents([.year, .month], from: event.payMonthStart)
+              let y = c.year!
+              let m = c.month!
+          
+              if event.nominalDay == 5 {
+                  return [
+                      FixedBillOccurrence(
+                          title: "Тинькофф подписка",
+                          amount: 3_000,
+                          dueDate: event.actualDate,
+                          detail: "Резерв после первой выплаты"
+                      ),
+                      FixedBillOccurrence(
+                          title: "Кредит Сбербанк",
+                          amount: 5_200,
+                          dueDate: makeDate(year: y, month: m, day: 6),
+                          detail: "6-го числа"
+                      ),
+                      FixedBillOccurrence(
+                          title: "Мобильная связь",
+                          amount: 1_000,
+                          dueDate: makeDate(year: y, month: m, day: 14),
+                          detail: "14-го числа"
+                      )
+                  ]
+              } else {
+                  let day30 = min(30, daysInMonth(event.payMonthStart))
+                  return [
+                      FixedBillOccurrence(
+                          title: "Проезд",
+                          amount: 3_400,
+                          dueDate: event.actualDate,
+                          detail: "Резерв после второй выплаты"
+                      ),
+                      FixedBillOccurrence(
+                          title: "Подписки",
+                          amount: 300,
+                          dueDate: event.actualDate,
+                          detail: "Резерв после второй выплаты"
+                      ),
+                      FixedBillOccurrence(
+                          title: "Образовательный кредит",
+                          amount: 3_500,
+                          dueDate: makeDate(year: y, month: m, day: day30),
+                          detail: day30 == 30 ? "30-го числа" : "В последний день месяца"
+                      )
+                  ]
+              }
+          }
+          
+          func fixedBills(in month: Date) -> [FixedBillOccurrence] {
+              let interval = Calendar.current.dateInterval(of: .month, for: month)!
+              let events = paydayEvents(around: month)
+                  .filter { interval.contains($0.actualDate) }
+              return events.flatMap { fixedBills(for: $0) }
+                  .filter { interval.contains($0.dueDate) }
+          }
+          
+          func money(_ value: Double) -> String {
+              let formatter = NumberFormatter()
+              formatter.numberStyle = .decimal
+              formatter.maximumFractionDigits = 0
+              formatter.groupingSeparator = "\u{202F}"
+              let number = formatter.string(from: NSNumber(value: value)) ?? "0"
+              return number + "\u{00A0}₽"
+          }
+          
+          func dateShort(_ date: Date) -> String {
+              let f = DateFormatter()
+              f.locale = Locale(identifier: "ru_RU")
+              f.dateFormat = "d MMMM"
+              return f.string(from: date)
+          }
+          
+          func monthTitle(_ date: Date) -> String {
+              let f = DateFormatter()
+              f.locale = Locale(identifier: "ru_RU")
+              f.dateFormat = "LLLL yyyy"
+              return f.string(from: date).capitalized
+          }
+          
+          func dateFull(_ date: Date) -> String {
+              let f = DateFormatter()
+              f.locale = Locale(identifier: "ru_RU")
+              f.dateFormat = "EEEE, d MMMM"
+              return f.string(from: date)
+          }
+          
+          func daysWord(_ n: Int) -> String {
+              let n100 = n % 100
+              let n10 = n % 10
+              if n100 >= 11 && n100 <= 19 { return "дней" }
+              if n10 == 1 { return "день" }
+              if (2...4).contains(n10) { return "дня" }
+              return "дней"
+          }
+          
+          // MARK: - Style
+          
+          extension Color {
+              static let lizaBG = Color(red: 0.978, green: 0.964, blue: 0.985)
+              static let lizaText = Color(red: 0.16, green: 0.10, blue: 0.20)
+              static let lizaMuted = Color(red: 0.43, green: 0.38, blue: 0.48)
+              static let lizaAccent = Color(red: 0.57, green: 0.31, blue: 0.67)
+              static let lizaSoft = Color(red: 0.95, green: 0.89, blue: 0.97)
+              static let lizaGreen = Color(red: 0.91, green: 0.98, blue: 0.94)
+              static let lizaWarning = Color(red: 1.0, green: 0.95, blue: 0.84)
+          }
+          
+          struct CardModifier: ViewModifier {
+              func body(content: Content) -> some View {
+                  content
+                      .padding(18)
+                      .background(Color.white)
+                      .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+                      .overlay(
+                          RoundedRectangle(cornerRadius: 24, style: .continuous)
+                              .stroke(Color.black.opacity(0.05))
+                      )
+              }
+          }
+          
+          extension View {
+              func card() -> some View { modifier(CardModifier()) }
+          }
+          
+          // MARK: - Expense editor
+          
+          struct ExpenseEditorView: View {
+              @EnvironmentObject var store: LizaBudgetStore
+              @Environment(\.dismiss) private var dismiss
+          
+              let existing: Expense?
+          
+              @State private var amount: String
+              @State private var category: LivingCategory
+              @State private var note: String
+              @State private var date: Date
+              @State private var deleteConfirm = false
+          
+              init(existing: Expense? = nil) {
+                  self.existing = existing
+                  _amount = State(initialValue: existing.map { String(Int($0.amount)) } ?? "")
+                  _category = State(initialValue: existing?.category ?? .food)
+                  _note = State(initialValue: existing?.note ?? "")
+                  _date = State(initialValue: existing?.date ?? Date())
+              }
+          
+              var body: some View {
+                  NavigationStack {
+                      Form {
+                          Section("Расход") {
+                              TextField("Сумма", text: $amount)
+                                  .keyboardType(.decimalPad)
+          
+                              Picker("Категория", selection: $category) {
+                                  ForEach(LivingCategory.allCases) { item in
+                                      Label(item.title, systemImage: item.systemImage).tag(item)
+                                  }
+                              }
+          
+                              TextField("Комментарий", text: $note)
+                              DatePicker("Дата", selection: $date, displayedComponents: .date)
+                          }
+          
+                          if existing != nil {
+                              Section {
+                                  Button("Удалить расход", role: .destructive) {
+                                      deleteConfirm = true
+                                  }
+                              }
+                          }
+                      }
+                      .navigationTitle(existing == nil ? "Добавить расход" : "Изменить расход")
+                      .navigationBarTitleDisplayMode(.inline)
+                      .toolbar {
+                          ToolbarItem(placement: .cancellationAction) {
+                              Button("Отмена") { dismiss() }
+                          }
+                          ToolbarItem(placement: .confirmationAction) {
+                              Button("Сохранить") {
+                                  let normalized = amount.replacingOccurrences(of: ",", with: ".")
+                                  guard let value = Double(normalized), value > 0 else { return }
+          
+                                  if let existing {
+                                      store.updateExpense(
+                                          existing,
+                                          amount: value,
+                                          category: category,
+                                          note: note.trimmingCharacters(in: .whitespacesAndNewlines),
+                                          date: date
+                                      )
+                                  } else {
+                                      store.addExpense(
+                                          amount: value,
+                                          category: category,
+                                          note: note.trimmingCharacters(in: .whitespacesAndNewlines),
+                                          date: date
+                                      )
+                                  }
+                                  dismiss()
+                              }
+                              .disabled(Double(amount.replacingOccurrences(of: ",", with: ".")) == nil)
+                          }
+                      }
+                      .confirmationDialog("Удалить расход?", isPresented: $deleteConfirm) {
+                          Button("Удалить", role: .destructive) {
+                              if let existing { store.deleteExpense(existing) }
+                              dismiss()
+                          }
+                          Button("Отмена", role: .cancel) {}
+                      }
+                  }
+              }
+          }
+          
+          // MARK: - Income editor
+          
+          struct IncomeEditorView: View {
+              @EnvironmentObject var store: LizaBudgetStore
+              @Environment(\.dismiss) private var dismiss
+          
+              let event: PaydayEvent
+              @State private var amount: String
+          
+              init(event: PaydayEvent, currentAmount: Double) {
+                  self.event = event
+                  _amount = State(initialValue: String(Int(currentAmount)))
+              }
+          
+              var body: some View {
+                  NavigationStack {
+                      Form {
+                          Section("Выплата \(dateShort(event.actualDate))") {
+                              LabeledContent("Расчётная сумма", value: money(event.expectedAmount))
+                              Text(event.workPeriodText)
+                                  .font(.footnote)
+                                  .foregroundStyle(.secondary)
+          
+                              TextField("Фактическая сумма", text: $amount)
+                                  .keyboardType(.decimalPad)
+                          }
+          
+                          Section {
+                              Button("Вернуть расчётную сумму") {
+                                  store.clearIncomeOverride(event: event)
+                                  dismiss()
+                              }
+                          }
+                      }
+                      .navigationTitle("Фактический доход")
+                      .navigationBarTitleDisplayMode(.inline)
+                      .toolbar {
+                          ToolbarItem(placement: .cancellationAction) {
+                              Button("Отмена") { dismiss() }
+                          }
+                          ToolbarItem(placement: .confirmationAction) {
+                              Button("Сохранить") {
+                                  let normalized = amount.replacingOccurrences(of: ",", with: ".")
+                                  if let value = Double(normalized), value >= 0 {
+                                      store.setIncome(event: event, amount: value)
+                                      dismiss()
+                                  }
+                              }
+                          }
+                      }
+                  }
+              }
+          }
+          
+          // MARK: - Credit cards
+          
+          struct CardPaymentEditorView: View {
+              @EnvironmentObject var store: LizaBudgetStore
+              @Environment(\.dismiss) private var dismiss
+          
+              let existing: CreditCardPayment?
+          
+              @State private var issuer: CreditCardIssuer
+              @State private var amount: String
+              @State private var dueDate: Date
+              @State private var deleteConfirm = false
+          
+              init(existing: CreditCardPayment? = nil) {
+                  self.existing = existing
+                  _issuer = State(initialValue: existing?.issuer ?? .yandex)
+                  _amount = State(initialValue: existing.map { String(Int($0.amount)) } ?? "")
+                  _dueDate = State(initialValue: existing?.dueDate ?? Date())
+              }
+          
+              var body: some View {
+                  NavigationStack {
+                      Form {
+                          Section("Платёж по кредитке") {
+                              Picker("Кредитка", selection: $issuer) {
+                                  ForEach(CreditCardIssuer.allCases) { issuer in
+                                      Text(issuer.title).tag(issuer)
+                                  }
+                              }
+          
+                              TextField("Сумма к оплате", text: $amount)
+                                  .keyboardType(.decimalPad)
+          
+                              DatePicker("Оплатить до", selection: $dueDate, displayedComponents: .date)
+                          }
+          
+                          if existing != nil {
+                              Section {
+                                  Button("Удалить платёж", role: .destructive) {
+                                      deleteConfirm = true
+                                  }
+                              }
+                          }
+                      }
+                      .navigationTitle(existing == nil ? "Добавить кредитку" : "Изменить платёж")
+                      .navigationBarTitleDisplayMode(.inline)
+                      .toolbar {
+                          ToolbarItem(placement: .cancellationAction) {
+                              Button("Отмена") { dismiss() }
+                          }
+                          ToolbarItem(placement: .confirmationAction) {
+                              Button("Сохранить") {
+                                  let normalized = amount.replacingOccurrences(of: ",", with: ".")
+                                  guard let value = Double(normalized), value >= 0 else { return }
+          
+                                  if let existing {
+                                      store.updateCardPayment(existing, issuer: issuer, amount: value, dueDate: dueDate)
+                                  } else {
+                                      store.addCardPayment(issuer: issuer, amount: value, dueDate: dueDate)
+                                  }
+                                  dismiss()
+                              }
+                          }
+                      }
+                      .confirmationDialog("Удалить платёж?", isPresented: $deleteConfirm) {
+                          Button("Удалить", role: .destructive) {
+                              if let existing { store.deleteCardPayment(existing) }
+                              dismiss()
+                          }
+                          Button("Отмена", role: .cancel) {}
+                      }
+                  }
+              }
+          }
+          
+          struct CardPaymentsView: View {
+              @EnvironmentObject var store: LizaBudgetStore
+              @Environment(\.dismiss) private var dismiss
+          
+              @State private var showAdd = false
+              @State private var editing: CreditCardPayment?
+          
+              var body: some View {
+                  NavigationStack {
+                      List {
+                          Section {
+                              Text("Каждый месяц внеси сумму и дату оплаты по Яндекс, Сбер и Тинькофф. Эти суммы автоматически резервируются в нужном зарплатном периоде.")
+                                  .font(.footnote)
+                                  .foregroundStyle(.secondary)
+                          }
+          
+                          Section("Платежи") {
+                              if store.cardPayments.isEmpty {
+                                  Text("Платежей пока нет")
+                                      .foregroundStyle(.secondary)
+                              }
+          
+                              ForEach(store.cardPayments.sorted { $0.dueDate > $1.dueDate }) { payment in
+                                  Button {
+                                      editing = payment
+                                  } label: {
+                                      HStack {
+                                          VStack(alignment: .leading, spacing: 3) {
+                                              Text("Кредитка \(payment.issuer.title)")
+                                                  .foregroundStyle(.primary)
+                                              Text("до \(dateShort(payment.dueDate))")
+                                                  .font(.caption)
+                                                  .foregroundStyle(.secondary)
+                                          }
+                                          Spacer()
+                                          Text(money(payment.amount))
+                                              .fontWeight(.semibold)
+                                              .foregroundStyle(.primary)
+                                      }
+                                  }
+                              }
+                          }
+                      }
+                      .navigationTitle("Кредитки")
+                      .toolbar {
+                          ToolbarItem(placement: .cancellationAction) {
+                              Button("Готово") { dismiss() }
+                          }
+                          ToolbarItem(placement: .primaryAction) {
+                              Button {
+                                  showAdd = true
+                              } label: {
+                                  Image(systemName: "plus")
+                              }
+                          }
+                      }
+                      .sheet(isPresented: $showAdd) {
+                          CardPaymentEditorView().environmentObject(store)
+                      }
+                      .sheet(item: $editing) { item in
+                          CardPaymentEditorView(existing: item).environmentObject(store)
+                      }
+                  }
+              }
+          }
+          
+          // MARK: - Main budget
+          
+          struct BudgetView: View {
+              @EnvironmentObject var store: LizaBudgetStore
+          
+              @State private var showExpenseAdd = false
+              @State private var editingExpense: Expense?
+              @State private var showIncome = false
+              @State private var showCards = false
+          
+              private var now: Date { startOfDay(Date()) }
+              private var period: PayPeriod { currentPayPeriod(now) }
+          
+              private var periodIncome: Double {
+                  store.income(for: period.current)
+              }
+          
+              private var periodFixedBills: [FixedBillOccurrence] {
+                  fixedBills(for: period.current)
+              }
+          
+              private var fixedReserve: Double {
+                  periodFixedBills.reduce(0) { $0 + $1.amount }
+              }
+          
+              private var periodCardPayments: [CreditCardPayment] {
+                  store.cardPayments.filter {
+                      $0.dueDate >= period.current.actualDate &&
+                      $0.dueDate < period.next.actualDate
+                  }
+              }
+          
+              private var cardReserve: Double {
+                  periodCardPayments.reduce(0) { $0 + $1.amount }
+              }
+          
+              private var periodExpenses: [Expense] {
+                  store.expenses.filter {
+                      $0.date >= period.current.actualDate &&
+                      $0.date < period.next.actualDate
+                  }
+              }
+          
+              private var spent: Double {
+                  periodExpenses.reduce(0) { $0 + $1.amount }
+              }
+          
+              private var periodSavings: Double {
+                  store.savings.filter {
+                      $0.date >= period.current.actualDate &&
+                      $0.date < period.next.actualDate
+                  }.reduce(0) { $0 + $1.amount }
+              }
+          
+              private var remaining: Double {
+                  periodIncome - fixedReserve - cardReserve - spent - periodSavings
+              }
+          
+              private var daysLeft: Int {
+                  max(1, Calendar.current.dateComponents([.day], from: now, to: period.next.actualDate).day ?? 1)
+              }
+          
+              private var dailyBudget: Double {
+                  remaining / Double(daysLeft)
+              }
+          
+              private var spentToday: Double {
+                  store.expenses.filter { Calendar.current.isDate($0.date, inSameDayAs: now) }
+                      .reduce(0) { $0 + $1.amount }
+              }
+          
+              private func spentInPeriod(_ category: LivingCategory) -> Double {
+                  periodExpenses.filter { $0.category == category }.reduce(0) { $0 + $1.amount }
+              }
+          
+              var body: some View {
+                  NavigationStack {
+                      ScrollView {
+                          LazyVStack(spacing: 14) {
+                              header
+                              hero
+                              metrics
+                              obligations
+                              categories
+                              history
+                          }
+                          .padding(.horizontal, 16)
+                          .padding(.bottom, 28)
+                      }
+                      .background(Color.lizaBG.ignoresSafeArea())
+                      .toolbar(.hidden, for: .navigationBar)
+                      .sheet(isPresented: $showExpenseAdd) {
+                          ExpenseEditorView().environmentObject(store)
+                      }
+                      .sheet(item: $editingExpense) { item in
+                          ExpenseEditorView(existing: item).environmentObject(store)
+                      }
+                      .sheet(isPresented: $showIncome) {
+                          IncomeEditorView(event: period.current, currentAmount: periodIncome)
+                              .environmentObject(store)
+                      }
+                      .sheet(isPresented: $showCards) {
+                          CardPaymentsView().environmentObject(store)
+                      }
+                  }
+              }
+          
+              private var header: some View {
+                  HStack(alignment: .top) {
+                      VStack(alignment: .leading, spacing: 3) {
+                          Text("Бюджет Лизы")
+                              .font(.system(size: 32, weight: .bold))
+                              .foregroundStyle(Color.lizaText)
+                          Text(dateFull(now))
+                              .font(.system(size: 15))
+                              .foregroundStyle(Color.lizaMuted)
+                      }
+          
+                      Spacer()
+          
+                      Button {
+                          showExpenseAdd = true
+                      } label: {
+                          Label("расход", systemImage: "plus")
+                              .font(.system(size: 16, weight: .semibold))
+                              .foregroundStyle(Color.lizaText)
+                              .padding(.horizontal, 14)
+                              .padding(.vertical, 12)
+                              .background(Color.white)
+                              .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                              .shadow(color: .black.opacity(0.05), radius: 5, y: 2)
+                      }
+                  }
+                  .padding(.top, 12)
+              }
+          
+              private var hero: some View {
+                  VStack(alignment: .leading, spacing: 15) {
+                      Text("\(dateShort(period.current.actualDate)) → \(dateShort(period.next.actualDate))")
+                          .font(.system(size: 14))
+                          .foregroundStyle(Color.lizaMuted)
+          
+                      Text(money(remaining))
+                          .font(.system(size: 43, weight: .bold))
+                          .lineLimit(1)
+                          .minimumScaleFactor(0.65)
+                          .foregroundStyle(remaining >= 0 ? Color.lizaText : Color.red)
+          
+                      Text("доступно до следующей выплаты")
+                          .font(.system(size: 15))
+                          .foregroundStyle(Color.lizaMuted)
+          
+                      HStack {
+                          VStack(alignment: .leading, spacing: 3) {
+                              Text("Следующая выплата")
+                                  .font(.caption)
+                                  .foregroundStyle(Color.lizaMuted)
+                              Text(dateShort(period.next.actualDate))
+                                  .font(.system(size: 18, weight: .bold))
+                          }
+          
+                          Spacer()
+          
+                          VStack(alignment: .trailing, spacing: 3) {
+                              Text("Расчётная")
+                                  .font(.caption)
+                                  .foregroundStyle(Color.lizaMuted)
+                              Text(money(period.next.expectedAmount))
+                                  .font(.system(size: 18, weight: .bold))
+                          }
+                      }
+          
+                      if period.current.nominalDay == 5 || period.current.nominalDay == 20 {
+                          Text(period.current.workPeriodText)
+                              .font(.system(size: 12))
+                              .foregroundStyle(Color.lizaMuted)
+                              .padding(12)
+                              .frame(maxWidth: .infinity, alignment: .leading)
+                              .background(Color.lizaSoft.opacity(0.7))
+                              .clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
+                      }
+                  }
+                  .card()
+              }
+          
+              private var metrics: some View {
+                  VStack(spacing: 12) {
+                      HStack(spacing: 12) {
+                          VStack(alignment: .leading, spacing: 7) {
+                              Text("Бюджет на день")
+                                  .font(.system(size: 13))
+                                  .foregroundStyle(Color.lizaMuted)
+                              Text(money(dailyBudget))
+                                  .font(.system(size: 25, weight: .bold))
+                                  .lineLimit(1)
+                                  .minimumScaleFactor(0.7)
+                              Text("\(daysLeft) \(daysWord(daysLeft)) до выплаты")
+                                  .font(.system(size: 12))
+                                  .foregroundStyle(Color.lizaMuted)
+                          }
+                          .frame(maxWidth: .infinity, minHeight: 105, alignment: .topLeading)
+                          .card()
+          
+                          VStack(alignment: .leading, spacing: 7) {
+                              Text("Сегодня")
+                                  .font(.system(size: 13))
+                                  .foregroundStyle(Color.lizaMuted)
+                              Text(money(spentToday))
+                                  .font(.system(size: 25, weight: .bold))
+                                  .lineLimit(1)
+                                  .minimumScaleFactor(0.7)
+                              Text("потрачено")
+                                  .font(.system(size: 12))
+                                  .foregroundStyle(Color.lizaMuted)
+                          }
+                          .frame(maxWidth: .infinity, minHeight: 105, alignment: .topLeading)
+                          .card()
+                      }
+          
+                      VStack(alignment: .leading, spacing: 10) {
+                          HStack {
+                              VStack(alignment: .leading, spacing: 3) {
+                                  Text("Доход этого периода")
+                                      .font(.system(size: 14))
+                                      .foregroundStyle(Color.lizaMuted)
+                                  Text(money(periodIncome))
+                                      .font(.system(size: 26, weight: .bold))
+                              }
+          
+                              Spacer()
+          
+                              Button("Изменить") {
+                                  showIncome = true
+                              }
+                              .font(.system(size: 13, weight: .semibold))
+                          }
+          
+                          if store.incomeOverrides[period.current.id] != nil {
+                              Text("Используется фактическая сумма вместо расчётной \(money(period.current.expectedAmount)).")
+                                  .font(.system(size: 12))
+                                  .foregroundStyle(Color.lizaAccent)
+                          } else {
+                              Text("Рассчитано по производственному календарю и рабочим дням.")
+                                  .font(.system(size: 12))
+                                  .foregroundStyle(Color.lizaMuted)
+                          }
+                      }
+                      .card()
+                  }
+              }
+          
+              private var obligations: some View {
+                  VStack(alignment: .leading, spacing: 14) {
+                      HStack {
+                          Text("Обязательные платежи")
+                              .font(.system(size: 22, weight: .bold))
+                          Spacer()
+                          Text(money(fixedReserve + cardReserve))
+                              .font(.system(size: 16, weight: .bold))
+                      }
+          
+                      ForEach(periodFixedBills) { bill in
+                          HStack {
+                              VStack(alignment: .leading, spacing: 2) {
+                                  Text(bill.title)
+                                      .font(.system(size: 15, weight: .semibold))
+                                  Text(bill.detail)
+                                      .font(.system(size: 12))
+                                      .foregroundStyle(Color.lizaMuted)
+                              }
+                              Spacer()
+                              Text(money(bill.amount))
+                                  .font(.system(size: 15, weight: .bold))
+                          }
+                      }
+          
+                      Divider()
+          
+                      HStack {
+                          VStack(alignment: .leading, spacing: 2) {
+                              Text("Кредитки")
+                                  .font(.system(size: 15, weight: .semibold))
+                              Text(periodCardPayments.isEmpty ? "На этот период не заполнены" : "\(periodCardPayments.count) платеж(а/ей) в периоде")
+                                  .font(.system(size: 12))
+                                  .foregroundStyle(periodCardPayments.isEmpty ? Color.orange : Color.lizaMuted)
+                          }
+                          Spacer()
+                          Button("Настроить") {
+                              showCards = true
+                          }
+                          .font(.system(size: 13, weight: .semibold))
+                      }
+          
+                      ForEach(periodCardPayments) { payment in
+                          HStack {
+                              Text("\(payment.issuer.title) · до \(dateShort(payment.dueDate))")
+                                  .font(.system(size: 13))
+                                  .foregroundStyle(Color.lizaMuted)
+                              Spacer()
+                              Text(money(payment.amount))
+                                  .font(.system(size: 13, weight: .semibold))
+                          }
+                      }
+          
+                      if periodSavings > 0 {
+                          Divider()
+                          HStack {
+                              Text("Переведено в накопления")
+                                  .font(.system(size: 14, weight: .semibold))
+                              Spacer()
+                              Text(money(periodSavings))
+                                  .font(.system(size: 14, weight: .bold))
+                          }
+                      }
+                  }
+                  .card()
+              }
+          
+              private var categories: some View {
+                  VStack(alignment: .leading, spacing: 12) {
+                      Text("Расходы по категориям")
+                          .font(.system(size: 22, weight: .bold))
+          
+                      Text("Лимиты пока не заданы — приложение собирает статистику, чтобы потом установить их по реальным тратам.")
+                          .font(.system(size: 12))
+                          .foregroundStyle(Color.lizaMuted)
+          
+                      ForEach(LivingCategory.allCases) { category in
+                          HStack {
+                              Label(category.title, systemImage: category.systemImage)
+                                  .font(.system(size: 16, weight: .semibold))
+                              Spacer()
+                              Text(money(spentInPeriod(category)))
+                                  .font(.system(size: 16, weight: .bold))
+                          }
+                          .padding(.vertical, 4)
+          
+                          if category.id != LivingCategory.allCases.last?.id {
+                              Divider()
+                          }
+                      }
+                  }
+                  .card()
+              }
+          
+              private var history: some View {
+                  VStack(alignment: .leading, spacing: 12) {
+                      HStack {
+                          Text("Последние расходы")
+                              .font(.system(size: 22, weight: .bold))
+                          Spacer()
+                          Button("Добавить") { showExpenseAdd = true }
+                              .font(.system(size: 13, weight: .semibold))
+                      }
+          
+                      if store.expenses.isEmpty {
+                          Text("Расходов пока нет.")
+                              .foregroundStyle(Color.lizaMuted)
+                      } else {
+                          ForEach(store.expenses.sorted { $0.date > $1.date }.prefix(20)) { expense in
+                              Button {
+                                  editingExpense = expense
+                              } label: {
+                                  HStack {
+                                      VStack(alignment: .leading, spacing: 3) {
+                                          Text(expense.note.isEmpty ? expense.category.title : expense.note)
+                                              .font(.system(size: 15, weight: .semibold))
+                                              .foregroundStyle(Color.lizaText)
+                                          Text("\(dateShort(expense.date)) · \(expense.category.title)")
+                                              .font(.system(size: 12))
+                                              .foregroundStyle(Color.lizaMuted)
+                                      }
+                                      Spacer()
+                                      Text("−\(money(expense.amount))")
+                                          .font(.system(size: 15, weight: .bold))
+                                          .foregroundStyle(Color.lizaText)
+                                  }
+                              }
+                              Divider()
+                          }
+                      }
+                  }
+                  .card()
+              }
+          }
+          
+          // MARK: - Savings
+          
+          struct SavingEditorView: View {
+              @EnvironmentObject var store: LizaBudgetStore
+              @Environment(\.dismiss) private var dismiss
+          
+              let existing: SavingEntry?
+          
+              @State private var amount: String
+              @State private var note: String
+              @State private var date: Date
+              @State private var deleteConfirm = false
+          
+              init(existing: SavingEntry? = nil) {
+                  self.existing = existing
+                  _amount = State(initialValue: existing.map { String(Int($0.amount)) } ?? "")
+                  _note = State(initialValue: existing?.note ?? "")
+                  _date = State(initialValue: existing?.date ?? Date())
+              }
+          
+              var body: some View {
+                  NavigationStack {
+                      Form {
+                          Section("Накопление") {
+                              TextField("Сумма", text: $amount).keyboardType(.decimalPad)
+                              TextField("Комментарий", text: $note)
+                              DatePicker("Дата", selection: $date, displayedComponents: .date)
+                          }
+          
+                          if existing != nil {
+                              Section {
+                                  Button("Удалить накопление", role: .destructive) {
+                                      deleteConfirm = true
+                                  }
+                              }
+                          }
+                      }
+                      .navigationTitle(existing == nil ? "Добавить накопление" : "Изменить накопление")
+                      .navigationBarTitleDisplayMode(.inline)
+                      .toolbar {
+                          ToolbarItem(placement: .cancellationAction) {
+                              Button("Отмена") { dismiss() }
+                          }
+                          ToolbarItem(placement: .confirmationAction) {
+                              Button("Сохранить") {
+                                  let normalized = amount.replacingOccurrences(of: ",", with: ".")
+                                  guard let value = Double(normalized), value > 0 else { return }
+          
+                                  if let existing {
+                                      store.updateSaving(
+                                          existing,
+                                          amount: value,
+                                          note: note.trimmingCharacters(in: .whitespacesAndNewlines),
+                                          date: date
+                                      )
+                                  } else {
+                                      store.addSaving(
+                                          amount: value,
+                                          note: note.trimmingCharacters(in: .whitespacesAndNewlines),
+                                          date: date
+                                      )
+                                  }
+                                  dismiss()
+                              }
+                          }
+                      }
+                      .confirmationDialog("Удалить накопление?", isPresented: $deleteConfirm) {
+                          Button("Удалить", role: .destructive) {
+                              if let existing { store.deleteSaving(existing) }
+                              dismiss()
+                          }
+                          Button("Отмена", role: .cancel) {}
+                      }
+                  }
+              }
+          }
+          
+          struct SavingsView: View {
+              @EnvironmentObject var store: LizaBudgetStore
+          
+              @State private var showAdd = false
+              @State private var editing: SavingEntry?
+              @State private var resetConfirm = false
+          
+              private var now: Date { startOfDay(Date()) }
+              private var currentMonth: DateInterval {
+                  Calendar.current.dateInterval(of: .month, for: now)!
+              }
+          
+              private var monthTotal: Double {
+                  store.savings.filter { currentMonth.contains($0.date) }.reduce(0) { $0 + $1.amount }
+              }
+          
+              private var lifetimeTotal: Double {
+                  store.savings.reduce(0) { $0 + $1.amount }
+              }
+          
+              private var trackedTotal: Double {
+                  max(0, lifetimeTotal - store.savingsTrackingBaseline)
+              }
+          
+              private var trackingDays: Int {
+                  let value = Calendar.current.dateComponents(
+                      [.day],
+                      from: startOfDay(store.savingsTrackingStart),
+                      to: now
+                  ).day ?? 0
+                  return max(1, value + 1)
+              }
+          
+              var body: some View {
+                  NavigationStack {
+                      ScrollView {
+                          LazyVStack(spacing: 14) {
+                              HStack {
+                                  VStack(alignment: .leading, spacing: 3) {
+                                      Text("Накопления")
+                                          .font(.system(size: 32, weight: .bold))
+                                      Text("Цель определим после анализа расходов")
+                                          .font(.system(size: 14))
+                                          .foregroundStyle(Color.lizaMuted)
+                                  }
+                                  Spacer()
+          
+                                  Button {
+                                      showAdd = true
+                                  } label: {
+                                      Label("внести", systemImage: "plus")
+                                          .font(.system(size: 15, weight: .semibold))
+                                          .padding(.horizontal, 13)
+                                          .padding(.vertical, 11)
+                                          .background(Color.white)
+                                          .clipShape(RoundedRectangle(cornerRadius: 17))
+                                  }
+                              }
+                              .padding(.top, 12)
+          
+                              VStack(alignment: .leading, spacing: 8) {
+                                  Text("В этом месяце")
+                                      .font(.system(size: 14))
+                                      .foregroundStyle(Color.lizaMuted)
+                                  Text(money(monthTotal))
+                                      .font(.system(size: 42, weight: .bold))
+                                  Text("Пока без планового лимита накоплений.")
+                                      .font(.system(size: 12))
+                                      .foregroundStyle(Color.lizaMuted)
+                              }
+                              .frame(maxWidth: .infinity, alignment: .leading)
+                              .card()
+          
+                              HStack(spacing: 12) {
+                                  VStack(alignment: .leading, spacing: 5) {
+                                      HStack {
+                                          Text("Всего накоплено")
+                                              .font(.system(size: 13))
+                                              .foregroundStyle(Color.lizaMuted)
+                                          Spacer()
+                                          Button("Сбросить") {
+                                              resetConfirm = true
+                                          }
+                                          .font(.system(size: 11, weight: .semibold))
+                                      }
+                                      Text(money(trackedTotal))
+                                          .font(.system(size: 23, weight: .bold))
+                                      Text("с \(dateShort(store.savingsTrackingStart)) · \(trackingDays) \(daysWord(trackingDays))")
+                                          .font(.system(size: 11))
+                                          .foregroundStyle(Color.lizaMuted)
+                                  }
+                                  .frame(maxWidth: .infinity, minHeight: 100, alignment: .topLeading)
+                                  .card()
+          
+                                  VStack(alignment: .leading, spacing: 5) {
+                                      Text("Записей")
+                                          .font(.system(size: 13))
+                                          .foregroundStyle(Color.lizaMuted)
+                                      Text("\(store.savings.count)")
+                                          .font(.system(size: 23, weight: .bold))
+                                      Text("за всё время")
+                                          .font(.system(size: 11))
+                                          .foregroundStyle(Color.lizaMuted)
+                                  }
+                                  .frame(maxWidth: .infinity, minHeight: 100, alignment: .topLeading)
+                                  .card()
+                              }
+          
+                              VStack(alignment: .leading, spacing: 12) {
+                                  Text("История")
+                                      .font(.system(size: 22, weight: .bold))
+          
+                                  if store.savings.isEmpty {
+                                      Text("Накоплений пока нет.")
+                                          .foregroundStyle(Color.lizaMuted)
+                                  }
+          
+                                  ForEach(store.savings.sorted { $0.date > $1.date }) { item in
+                                      Button {
+                                          editing = item
+                                      } label: {
+                                          HStack {
+                                              VStack(alignment: .leading, spacing: 3) {
+                                                  Text(item.note.isEmpty ? "Накопление" : item.note)
+                                                      .font(.system(size: 15, weight: .semibold))
+                                                      .foregroundStyle(Color.lizaText)
+                                                  Text(dateShort(item.date))
+                                                      .font(.system(size: 12))
+                                                      .foregroundStyle(Color.lizaMuted)
+                                              }
+                                              Spacer()
+                                              Text("+\(money(item.amount))")
+                                                  .font(.system(size: 15, weight: .bold))
+                                                  .foregroundStyle(Color.lizaText)
+                                          }
+                                      }
+                                      Divider()
+                                  }
+                              }
+                              .card()
+                          }
+                          .padding(.horizontal, 16)
+                          .padding(.bottom, 28)
+                      }
+                      .background(Color.lizaBG.ignoresSafeArea())
+                      .toolbar(.hidden, for: .navigationBar)
+                      .sheet(isPresented: $showAdd) {
+                          SavingEditorView().environmentObject(store)
+                      }
+                      .sheet(item: $editing) { item in
+                          SavingEditorView(existing: item).environmentObject(store)
+                      }
+                      .confirmationDialog("Сбросить общий счётчик?", isPresented: $resetConfirm) {
+                          Button("Сбросить", role: .destructive) {
+                              store.resetSavingsCounter()
+                          }
+                          Button("Отмена", role: .cancel) {}
+                      } message: {
+                          Text("Отсчёт начнётся заново с сегодняшней даты. История накоплений сохранится.")
+                      }
+                  }
+              }
+          }
+          
+          // MARK: - Analytics
+          
+          struct AnalyticsView: View {
+              @EnvironmentObject var store: LizaBudgetStore
+              @State private var selectedMonth = monthStart(Date())
+          
+              private var interval: DateInterval {
+                  Calendar.current.dateInterval(of: .month, for: selectedMonth)!
+              }
+          
+              private var livingExpenses: [Expense] {
+                  store.expenses.filter { interval.contains($0.date) }
+              }
+          
+              private var fixed: [FixedBillOccurrence] {
+                  fixedBills(in: selectedMonth)
+              }
+          
+              private var cards: [CreditCardPayment] {
+                  store.cardPayments.filter { interval.contains($0.dueDate) }
+              }
+          
+              private var savings: [SavingEntry] {
+                  store.savings.filter { interval.contains($0.date) }
+              }
+          
+              private var payEvents: [PaydayEvent] {
+                  paydayEvents(around: selectedMonth).filter { interval.contains($0.actualDate) }
+              }
+          
+              private var incomeTotal: Double {
+                  payEvents.reduce(0) { $0 + store.income(for: $1) }
+              }
+          
+              private var livingTotal: Double {
+                  livingExpenses.reduce(0) { $0 + $1.amount }
+              }
+          
+              private var fixedTotal: Double {
+                  fixed.reduce(0) { $0 + $1.amount }
+              }
+          
+              private var cardsTotal: Double {
+                  cards.reduce(0) { $0 + $1.amount }
+              }
+          
+              private var savingsTotal: Double {
+                  savings.reduce(0) { $0 + $1.amount }
+              }
+          
+              private var outflowTotal: Double {
+                  livingTotal + fixedTotal + cardsTotal
+              }
+          
+              private var balance: Double {
+                  incomeTotal - outflowTotal - savingsTotal
+              }
+          
+              private var dailyPoints: [DailyPoint] {
+                  let cal = Calendar.current
+                  let days = daysInMonth(selectedMonth)
+                  return (1...days).map { day in
+                      let c = cal.dateComponents([.year, .month], from: selectedMonth)
+                      let date = makeDate(year: c.year!, month: c.month!, day: day)
+          
+                      let living = livingExpenses.filter { cal.isDate($0.date, inSameDayAs: date) }
+                          .reduce(0) { $0 + $1.amount }
+                      let fixedValue = fixed.filter { cal.isDate($0.dueDate, inSameDayAs: date) }
+                          .reduce(0) { $0 + $1.amount }
+                      let cardValue = cards.filter { cal.isDate($0.dueDate, inSameDayAs: date) }
+                          .reduce(0) { $0 + $1.amount }
+          
+                      return DailyPoint(date: date, amount: living + fixedValue + cardValue)
+                  }
+              }
+          
+              private func csvField(_ value: String) -> String {
+                  let quote = String(UnicodeScalar(34)!)
+                  let escaped = value.replacingOccurrences(of: quote, with: quote + quote)
+                  return quote + escaped + quote
+              }
+          
+              private var exportURL: URL {
+                  let f = DateFormatter()
+                  f.locale = Locale(identifier: "en_US_POSIX")
+                  f.dateFormat = "yyyy-MM"
+                  let url = FileManager.default.temporaryDirectory
+                      .appendingPathComponent("rashody_liza_\(f.string(from: selectedMonth)).csv")
+          
+                  let dateF = DateFormatter()
+                  dateF.dateFormat = "dd.MM.yyyy"
+          
+                  var rows = ["Дата;Тип;Категория;Комментарий;Сумма"]
+          
+                  for item in livingExpenses.sorted(by: { $0.date < $1.date }) {
+                      rows.append([
+                          csvField(dateF.string(from: item.date)),
+                          csvField("Повседневный расход"),
+                          csvField(item.category.title),
+                          csvField(item.note),
+                          csvField(String(format: "%.2f", item.amount).replacingOccurrences(of: ".", with: ","))
+                      ].joined(separator: ";"))
+                  }
+          
+                  for item in fixed.sorted(by: { $0.dueDate < $1.dueDate }) {
+                      rows.append([
+                          csvField(dateF.string(from: item.dueDate)),
+                          csvField("Обязательный платёж"),
+                          csvField(item.title),
+                          csvField(item.detail),
+                          csvField(String(format: "%.2f", item.amount).replacingOccurrences(of: ".", with: ","))
+                      ].joined(separator: ";"))
+                  }
+          
+                  for item in cards.sorted(by: { $0.dueDate < $1.dueDate }) {
+                      rows.append([
+                          csvField(dateF.string(from: item.dueDate)),
+                          csvField("Кредитка"),
+                          csvField(item.issuer.title),
+                          csvField("Платёж по кредитной карте"),
+                          csvField(String(format: "%.2f", item.amount).replacingOccurrences(of: ".", with: ","))
+                      ].joined(separator: ";"))
+                  }
+          
+                  let csv = "\u{FEFF}" + rows.joined(separator: "\n")
+                  try? csv.data(using: .utf8)?.write(to: url, options: .atomic)
+                  return url
+              }
+          
+              var body: some View {
+                  NavigationStack {
+                      ScrollView {
+                          LazyVStack(spacing: 14) {
+                              HStack {
+                                  VStack(alignment: .leading, spacing: 3) {
+                                      Text("Аналитика")
+                                          .font(.system(size: 32, weight: .bold))
+                                      Text("Доходы, расходы и накопления")
+                                          .font(.system(size: 14))
+                                          .foregroundStyle(Color.lizaMuted)
+                                  }
+                                  Spacer()
+          
+                                  ShareLink(item: exportURL) {
+                                      Label("CSV", systemImage: "square.and.arrow.up")
+                                          .font(.system(size: 14, weight: .semibold))
+                                          .padding(.horizontal, 12)
+                                          .padding(.vertical, 10)
+                                          .background(Color.white)
+                                          .clipShape(RoundedRectangle(cornerRadius: 15))
+                                  }
+                              }
+                              .padding(.top, 12)
+          
+                              HStack {
+                                  Button {
+                                      selectedMonth = Calendar.current.date(byAdding: .month, value: -1, to: selectedMonth) ?? selectedMonth
+                                  } label: {
+                                      Image(systemName: "chevron.left")
+                                  }
+          
+                                  Spacer()
+                                  Text(monthTitle(selectedMonth))
+                                      .font(.system(size: 18, weight: .bold))
+                                  Spacer()
+          
+                                  Button {
+                                      selectedMonth = Calendar.current.date(byAdding: .month, value: 1, to: selectedMonth) ?? selectedMonth
+                                  } label: {
+                                      Image(systemName: "chevron.right")
+                                  }
+                                  .disabled(monthStart(selectedMonth) >= monthStart(Date()))
+                              }
+                              .card()
+          
+                              VStack(alignment: .leading, spacing: 14) {
+                                  Text("Динамика расходов")
+                                      .font(.system(size: 22, weight: .bold))
+          
+                                  Chart(dailyPoints) { point in
+                                      LineMark(
+                                          x: .value("Дата", point.date),
+                                          y: .value("Расходы", point.amount)
+                                      )
+                                      .interpolationMethod(.catmullRom)
+          
+                                      AreaMark(
+                                          x: .value("Дата", point.date),
+                                          y: .value("Расходы", point.amount)
+                                      )
+                                      .opacity(0.10)
+          
+                                      if point.amount > 0 {
+                                          PointMark(
+                                              x: .value("Дата", point.date),
+                                              y: .value("Расходы", point.amount)
+                                          )
+                                      }
+                                  }
+                                  .chartXAxis {
+                                      AxisMarks(values: .automatic(desiredCount: 6)) {
+                                          AxisGridLine()
+                                          AxisTick()
+                                          AxisValueLabel(format: .dateTime.day())
+                                      }
+                                  }
+                                  .frame(height: 230)
+                              }
+                              .card()
+          
+                              VStack(alignment: .leading, spacing: 14) {
+                                  Text("Баланс месяца")
+                                      .font(.system(size: 22, weight: .bold))
+          
+                                  Chart {
+                                      BarMark(x: .value("Показатель", "Доходы"), y: .value("Сумма", incomeTotal))
+                                      BarMark(x: .value("Показатель", "Расходы"), y: .value("Сумма", outflowTotal))
+                                      BarMark(x: .value("Показатель", "Накопления"), y: .value("Сумма", savingsTotal))
+                                  }
+                                  .frame(height: 190)
+          
+                                  HStack {
+                                      Text("Остаток")
+                                          .foregroundStyle(Color.lizaMuted)
+                                      Spacer()
+                                      Text(money(balance))
+                                          .fontWeight(.bold)
+                                          .foregroundStyle(balance >= 0 ? Color.lizaText : Color.red)
+                                  }
+                              }
+                              .card()
+          
+                              HStack(spacing: 12) {
+                                  metricCard("Доход", incomeTotal)
+                                  metricCard("Повседневные", livingTotal)
+                              }
+          
+                              HStack(spacing: 12) {
+                                  metricCard("Обязательные", fixedTotal + cardsTotal)
+                                  metricCard("Накопления", savingsTotal)
+                              }
+          
+                              VStack(alignment: .leading, spacing: 12) {
+                                  Text("Повседневные категории")
+                                      .font(.system(size: 22, weight: .bold))
+          
+                                  ForEach(LivingCategory.allCases) { category in
+                                      let value = livingExpenses.filter { $0.category == category }
+                                          .reduce(0) { $0 + $1.amount }
+          
+                                      HStack {
+                                          Text(category.title)
+                                          Spacer()
+                                          Text(money(value)).fontWeight(.bold)
+                                      }
+                                      Divider()
+                                  }
+                              }
+                              .card()
+          
+                              VStack(alignment: .leading, spacing: 12) {
+                                  Text("Выплаты")
+                                      .font(.system(size: 22, weight: .bold))
+          
+                                  ForEach(payEvents) { event in
+                                      HStack {
+                                          VStack(alignment: .leading, spacing: 3) {
+                                              Text(dateShort(event.actualDate))
+                                                  .font(.system(size: 15, weight: .semibold))
+                                              Text(event.workPeriodText)
+                                                  .font(.system(size: 11))
+                                                  .foregroundStyle(Color.lizaMuted)
+                                          }
+                                          Spacer()
+                                          Text(money(store.income(for: event)))
+                                              .font(.system(size: 15, weight: .bold))
+                                      }
+                                      Divider()
+                                  }
+                              }
+                              .card()
+                          }
+                          .padding(.horizontal, 16)
+                          .padding(.bottom, 28)
+                      }
+                      .background(Color.lizaBG.ignoresSafeArea())
+                      .toolbar(.hidden, for: .navigationBar)
+                  }
+              }
+          
+              private func metricCard(_ title: String, _ value: Double) -> some View {
+                  VStack(alignment: .leading, spacing: 7) {
+                      Text(title)
+                          .font(.system(size: 13))
+                          .foregroundStyle(Color.lizaMuted)
+                      Text(money(value))
+                          .font(.system(size: 21, weight: .bold))
+                          .lineLimit(1)
+                          .minimumScaleFactor(0.65)
+                  }
+                  .frame(maxWidth: .infinity, minHeight: 82, alignment: .topLeading)
+                  .card()
+              }
+          }
+          
+          // MARK: - Wiki
+          
+          struct WikiRow: View {
+              let title: String
+              let value: String
+              let detail: String?
+          
+              init(_ title: String, _ value: String, detail: String? = nil) {
+                  self.title = title
+                  self.value = value
+                  self.detail = detail
+              }
+          
+              var body: some View {
+                  HStack(alignment: .top, spacing: 12) {
+                      VStack(alignment: .leading, spacing: 3) {
+                          Text(title)
+                              .font(.system(size: 15, weight: .semibold))
+                          if let detail {
+                              Text(detail)
+                                  .font(.system(size: 12))
+                                  .foregroundStyle(Color.lizaMuted)
+                          }
+                      }
+                      Spacer()
+                      Text(value)
+                          .font(.system(size: 15, weight: .bold))
+                          .multilineTextAlignment(.trailing)
+                  }
+              }
+          }
+          
+          struct WikiBullet: View {
+              let text: String
+          
+              var body: some View {
+                  HStack(alignment: .top, spacing: 8) {
+                      Circle()
+                          .fill(Color.lizaAccent)
+                          .frame(width: 5, height: 5)
+                          .padding(.top, 7)
+                      Text(text)
+                          .font(.system(size: 14))
+                          .foregroundStyle(Color.lizaMuted)
+                          .fixedSize(horizontal: false, vertical: true)
+                  }
+              }
+          }
+          
+          struct WikiView: View {
+              var body: some View {
+                  NavigationStack {
+                      ScrollView {
+                          LazyVStack(spacing: 14) {
+                              VStack(alignment: .leading, spacing: 3) {
+                                  Text("Вики")
+                                      .font(.system(size: 32, weight: .bold))
+                                  Text("Как устроен «Бюджет Лизы»")
+                                      .font(.system(size: 14))
+                                      .foregroundStyle(Color.lizaMuted)
+                              }
+                              .frame(maxWidth: .infinity, alignment: .leading)
+                              .padding(.top, 12)
+          
+                              wikiCard("Доход") {
+                                  WikiRow("Оклад за полный месяц", "113 100 ₽")
+                                  Divider()
+                                  WikiRow("Выплаты", "5-го и 20-го")
+                                  WikiBullet(text: "20-го приходит оплата за рабочие дни с 1-го по 15-е текущего месяца.")
+                                  WikiBullet(text: "5-го приходит оплата за рабочие дни с 16-го по последний день предыдущего месяца.")
+                                  WikiBullet(text: "Сумма = 113 100 ₽ ÷ рабочие дни соответствующего месяца × рабочие дни оплачиваемой половины.")
+                                  WikiBullet(text: "Если 5-е или 20-е приходится на субботу или воскресенье, дата выплаты переносится на предыдущую пятницу.")
+                                  WikiBullet(text: "Фактическую сумму можно вручную изменить — например, при отпуске, больничном или премии.")
+                              }
+          
+                              wikiCard("Производственный календарь") {
+                                  WikiBullet(text: "Для расчёта рабочих дней встроены утверждённые федеральные производственные календари РФ на 2026 и 2027 годы, включая переносы выходных.")
+                                  WikiBullet(text: "В 2027 году также учтена рабочая суббота 20 февраля.")
+                                  WikiBullet(text: "Для следующих календарных лет приложение потребуется обновить после утверждения официальных переносов.")
+                              }
+          
+                              wikiCard("После выплаты 5-го") {
+                                  WikiRow("Тинькофф подписка", "3 000 ₽", detail: "Резерв сразу после выплаты")
+                                  Divider()
+                                  WikiRow("Кредит Сбербанк", "5 200 ₽", detail: "6-го числа")
+                                  Divider()
+                                  WikiRow("Мобильная связь", "1 000 ₽", detail: "14-го числа")
+                                  Divider()
+                                  WikiRow("Постоянный резерв", "9 200 ₽")
+                              }
+          
+                              wikiCard("После выплаты 20-го") {
+                                  WikiRow("Проезд", "3 400 ₽", detail: "Резерв сразу после выплаты")
+                                  Divider()
+                                  WikiRow("Подписки", "300 ₽", detail: "Резерв сразу после выплаты")
+                                  Divider()
+                                  WikiRow("Образовательный кредит", "3 500 ₽", detail: "30-го числа")
+                                  Divider()
+                                  WikiRow("Постоянный резерв", "7 200 ₽")
+                              }
+          
+                              wikiCard("Кредитные карты") {
+                                  WikiBullet(text: "Яндекс, Сбер и Тинькофф не имеют фиксированной суммы в бюджете.")
+                                  WikiBullet(text: "Каждый месяц пользователь вручную указывает сумму и дату оплаты по каждой кредитке.")
+                                  WikiBullet(text: "Приложение автоматически относит платёж к тому зарплатному периоду, в который попадает его дата, и резервирует деньги.")
+                              }
+          
+                              wikiCard("Повседневные расходы") {
+                                  WikiBullet(text: "Категории: Еда, Кафе, Красота, Развлечения, Одежда и Прочее.")
+                                  WikiBullet(text: "На первом этапе лимиты категорий не заданы: приложение собирает фактическую статистику.")
+                                  WikiBullet(text: "После нескольких недель или месяцев можно установить реальные лимиты и цель накоплений без изменения базовой логики приложения.")
+                              }
+          
+                              wikiCard("Дневной бюджет") {
+                                  WikiBullet(text: "Из фактической или расчётной выплаты вычитаются постоянные обязательные платежи, введённые платежи по кредиткам, уже внесённые повседневные расходы и переводы в накопления.")
+                                  WikiBullet(text: "Оставшаяся сумма делится на количество дней до следующей фактической даты выплаты.")
+                                  WikiBullet(text: "Если сегодня потрачено меньше — неиспользованные деньги автоматически распределяются на оставшиеся дни.")
+                                  WikiBullet(text: "Если произошёл перерасход — дневной бюджет следующих дней автоматически уменьшается.")
+                              }
+          
+                              wikiCard("Накопления") {
+                                  WikiBullet(text: "Можно добавлять, изменять и удалять накопления.")
+                                  WikiBullet(text: "Показывается сумма за текущий месяц и общая сумма с даты начала отсчёта.")
+                                  WikiBullet(text: "Сброс начинает новый общий отсчёт с сегодняшнего дня, но не удаляет историю.")
+                                  WikiBullet(text: "Месячная цель пока не задана — её определим после анализа реальных расходов.")
+                              }
+          
+                              wikiCard("Аналитика") {
+                                  WikiBullet(text: "Можно листать месяцы назад и смотреть динамику расходов по дням.")
+                                  WikiBullet(text: "График расходов включает повседневные расходы, постоянные обязательные платежи и введённые платежи по кредиткам.")
+                                  WikiBullet(text: "Отдельно показываются доход, повседневные расходы, обязательные платежи, накопления и остаток.")
+                                  WikiBullet(text: "CSV-выгрузка выбранного месяца сохраняется через стандартное меню iPhone в «Файлы» или может быть отправлена в другое приложение.")
+                              }
+                          }
+                          .padding(.horizontal, 16)
+                          .padding(.bottom, 28)
+                      }
+                      .background(Color.lizaBG.ignoresSafeArea())
+                      .toolbar(.hidden, for: .navigationBar)
+                  }
+              }
+          
+              @ViewBuilder
+              private func wikiCard<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
+                  VStack(alignment: .leading, spacing: 12) {
+                      Text(title)
+                          .font(.system(size: 22, weight: .bold))
+                      content()
+                  }
+                  .card()
+              }
+          }
+          
+          // MARK: - Root
+          
+          struct RootView: View {
+              var body: some View {
+                  TabView {
+                      BudgetView()
+                          .tabItem {
+                              Label("Бюджет", systemImage: "wallet.pass")
+                          }
+          
+                      SavingsView()
+                          .tabItem {
+                              Label("Накопления", systemImage: "banknote")
+                          }
+          
+                      AnalyticsView()
+                          .tabItem {
+                              Label("Аналитика", systemImage: "chart.xyaxis.line")
+                          }
+          
+                      WikiView()
+                          .tabItem {
+                              Label("Вики", systemImage: "book.closed")
+                          }
+                  }
+                  .tint(Color.lizaAccent)
+              }
+          }
+          
+          @main
+          struct LizaBudgetApp: App {
+              @StateObject private var store = LizaBudgetStore()
+          
+              var body: some Scene {
+                  WindowGroup {
+                      RootView()
+                          .environmentObject(store)
+                          .preferredColorScheme(.light)
+                  }
+              }
+          }
+          
+          SWIFT
+
+          cd LizaBudget
+          xcodegen generate
+
+      - name: Build unsigned app
+        run: |
+          cd LizaBudget
+          xcodebuild \
+            -project LizaBudget.xcodeproj \
+            -scheme LizaBudget \
+            -configuration Release \
+            -sdk iphoneos \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            build
+
+      - name: Package IPA
+        run: |
+          cd LizaBudget
+          mkdir -p Payload
+          cp -R build/Build/Products/Release-iphoneos/LizaBudget.app Payload/
+          zip -qry LizaBudget-unsigned.ipa Payload
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: LizaBudget-unsigned
+          path: LizaBudget/LizaBudget-unsigned.ipa
+          retention-days: 7
